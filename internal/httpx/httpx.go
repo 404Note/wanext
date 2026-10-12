@@ -41,6 +41,16 @@ var DefaultTimeout = 20 * time.Second
 //     因此 dialFingerprinted 内按 httpproxy 规则手动做 CONNECT；
 //  2. 非 *tls.Conn 无法走 HTTP/2，故把 Chrome spec 的 ALPN 改为仅 http/1.1
 //    （ALPN 取值不计入 JA3，指纹不受影响）。
+// NewPlainClient 返回标准 Go TLS 的客户端（不做指纹伪装）。
+// 用于对 TLS 指纹敏感的 CDN（如 B 站 *.bilivideo.com 会拦截伪装指纹）。
+func NewPlainClient() *http.Client {
+	jar, _ := cookiejar.New(nil)
+	return &http.Client{
+		Timeout: DefaultTimeout,
+		Jar:     jar,
+	}
+}
+
 func NewClient() *http.Client {
 	jar, _ := cookiejar.New(nil)
 	return &http.Client{

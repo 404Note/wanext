@@ -42,13 +42,12 @@ var platformReferer = map[string]string{
 }
 
 // Instagram CDN 对 UA 指纹敏感，用极简 UA；
-// B 站风控拦截浏览器 UA（机房 IP 下 412），用中性 UA。
+// B 站：API 接口（api.bilibili.com）在机房 IP 下用浏览器 UA 会被 412 拦截，用中性 UA；
+// 但 CDN（*.bilivideo.com）反过来：curl 类 UA 直接 403，必须用浏览器 UA。
 func platformUA(platformName string) string {
 	switch platformName {
 	case "instagram":
 		return httpx.MinimalUA
-	case "bilibili":
-		return platform.BilibiliUA
 	default:
 		return httpx.DesktopUA
 	}
@@ -60,6 +59,9 @@ type mediaEntry struct {
 	ua       string
 	filename string
 	expires  time.Time
+	// plainTLS：为 true 时用标准 Go TLS（不做指纹伪装）。
+	// B 站 CDN 会拦截指纹伪装的 TLS 握手，必须用标准 TLS + 浏览器 UA。
+	plainTLS bool
 }
 
 // Registry 是媒体代理令牌的内存注册表。
@@ -195,6 +197,7 @@ func New() http.Handler {
 				ua:       platformUA(res.Platform),
 				filename: sanitizeFilename(res.Title, m.Kind),
 				expires:  time.Now().Add(mediaTTL),
+				plainTLS: res.Platform == "bilibili",
 			})
 			proxy := "/api/media/" + token
 			out.Medias = append(out.Medias, apiMedia{
@@ -267,6 +270,9 @@ func proxyMedia(w http.ResponseWriter, r *http.Request, e *mediaEntry) {
 		req.Header.Set("Range", rg)
 	}
 	client := httpx.NewClient()
+	if e.plainTLS {
+		client = httpx.NewPlainClient()
+	}
 	client.Timeout = 10 * time.Minute
 	resp, err := client.Do(req)
 	if err != nil {
