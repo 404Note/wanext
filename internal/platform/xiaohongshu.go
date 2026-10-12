@@ -99,25 +99,34 @@ func parseXiaohongshuPage(s, pageURL, platformName string) (*model.Result, error
 	if err := json.Unmarshal([]byte(sanitizeXHSState(raw)), &data); err != nil {
 		return nil, fmt.Errorf("解析页面数据失败: %w", err)
 	}
-	detailMap, ok := httpx.J(data, "note", "noteDetailMap").(map[string]any)
-	if !ok || len(detailMap) == 0 {
+	// 笔记数据有两种页面结构，优先新版：
+	//  - 新版分享页（discovery/item）：noteData.data.noteData
+	//  - 旧版 explore 页：note.noteDetailMap[<id>].note
+	note := httpx.J(data, "noteData", "data", "noteData")
+	if note == nil {
+		if detailMap, ok := httpx.J(data, "note", "noteDetailMap").(map[string]any); ok && len(detailMap) > 0 {
+			for _, v := range detailMap {
+				note = httpx.J(v, "note")
+				break
+			}
+		}
+	}
+	if note == nil {
 		return nil, fmt.Errorf("页面数据中未找到笔记（分享链接的 xsec_token 可能已过期，请重新分享获取新链接）")
 	}
-	var note any
-	for _, v := range detailMap {
-		note = v
-		break
-	}
-	note = httpx.J(note, "note")
 	title := httpx.S(note, "title")
 	desc := httpx.S(note, "desc")
 	if title == "" {
 		title = TruncateRunes(desc, 60)
 	}
+	author := httpx.S(note, "user", "nickname")
+	if author == "" {
+		author = httpx.S(note, "user", "nickName") // 新版分享页用 nickName
+	}
 	res := &model.Result{
 		Platform: platformName,
 		Title:    title,
-		Author:   httpx.S(note, "user", "nickname"),
+		Author:   author,
 		PageURL:  pageURL,
 	}
 	noteType := httpx.S(note, "type") // "video" | "normal"
