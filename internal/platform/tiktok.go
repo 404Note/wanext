@@ -3,9 +3,11 @@ package platform
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"wanext/internal/httpx"
 	"wanext/internal/model"
@@ -25,10 +27,36 @@ var (
 	tiktokRehydrationRe = regexp.MustCompile(`(?s)<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">(.*?)</script>`)
 )
 
+// errTiktokNoRehydration 表示页面未携带 __UNIVERSAL_DATA_FOR_REHYDRATION__。
+// TikTok 会间歇性返回降级页（无作品数据），重试通常可恢复，故该错误可重试。
+var errTiktokNoRehydration = errors.New("页面未携带作品数据（可能被反爬拦截）")
+
 func (p TikTok) Parse(ctx context.Context, rawURL string) (*model.Result, error) {
 	// 用保持 cookie 的客户端：TikTok CDN 校验 playAddr 的 tk=tt_chain_token
 	// 与 Cookie 绑定，无 Cookie 下载会 403。
 	cli := httpx.NewClientWithJar()
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("获取分享页失败: %w", ctx.Err())
+			case <-time.After(2 * time.Second):
+			}
+		}
+		res, err := p.parseOnce(ctx, cli, rawURL)
+		if err == nil {
+			return res, nil
+		}
+		lastErr = err
+		if !errors.Is(err, errTiktokNoRehydration) {
+			return nil, err
+		}
+	}
+	return nil, lastErr
+}
+
+func (p TikTok) parseOnce(ctx context.Context, cli *httpx.Client, rawURL string) (*model.Result, error) {
 	finalURL, body, err := cli.Get(ctx, rawURL, map[string]string{"User-Agent": httpx.DesktopUA})
 	if err != nil {
 		return nil, fmt.Errorf("获取分享页失败: %w", err)
@@ -36,7 +64,7 @@ func (p TikTok) Parse(ctx context.Context, rawURL string) (*model.Result, error)
 	s := string(body)
 	raw := FirstSubmatch(tiktokRehydrationRe, s)
 	if raw == "" {
-		return nil, fmt.Errorf("页面未携带作品数据（可能被反爬拦截）")
+		return nil, errTiktokNoRehydration
 	}
 	var data any
 	if err := json.Unmarshal([]byte(raw), &data); err != nil {
