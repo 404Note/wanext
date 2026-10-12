@@ -139,12 +139,12 @@ func TestParseXiaohongshuNotFoundPage(t *testing.T) {
 
 	// 1. finalURL 含 /404/
 	_, err := parseXiaohongshuPage(html404, "https://www.xiaohongshu.com/404/sec_oDFFmpNO?source=xhs_sec_server", "xiaohongshu")
-	if err == nil || err.Error() != "笔记不存在或分享链接已失效，请重新分享获取新链接" {
+	if err == nil || err.Error() != "笔记无法访问：链接可能已失效或被平台限制，请重新分享后重试" {
 		t.Errorf("404 URL 应明确报错，得到: %v", err)
 	}
 	// 2. 仅 state 含 notFoundPage 标记（URL 未重定向时）
 	_, err = parseXiaohongshuPage(html404, "https://www.xiaohongshu.com/discovery/item/6aadd7d6000000002700abf6", "xiaohongshu")
-	if err == nil || err.Error() != "笔记不存在或分享链接已失效，请重新分享获取新链接" {
+	if err == nil || err.Error() != "笔记无法访问：链接可能已失效或被平台限制，请重新分享后重试" {
 		t.Errorf("notFoundPage 标记应明确报错，得到: %v", err)
 	}
 }
