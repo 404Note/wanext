@@ -34,6 +34,16 @@ button.parse:disabled { background:#2c3a55; cursor:wait;}
 .media-item.kind { font-size:12px; color:var(--muted); margin-bottom:10px;}
 .media-item video { width:100%; max-height:480px; border-radius:10px; background:#000;}
 .media-item img { width:100%; border-radius:10px; display:block;}
+.carousel { position:relative;}
+.slides { display:flex; overflow-x:auto; scroll-snap-type:x mandatory; border-radius:10px; scrollbar-width:none; -webkit-overflow-scrolling:touch;}
+.slides::-webkit-scrollbar { display:none;}
+.slides img { width:100%; flex:0 0 100%; scroll-snap-align:center; max-height:75vh; object-fit:contain; background:#000;}
+.car-btn { position:absolute; top:50%; transform:translateY(-50%); background:rgba(0,0,0,.55); color:#fff; border:none; width:38px; height:38px; border-radius:50%; font-size:22px; line-height:1; cursor:pointer; z-index:2;}
+.car-btn:hover { background:rgba(0,0,0,.8);}
+.car-prev { left:10px;} .car-next { right:10px;}
+.dots { text-align:center; margin-top:10px;}
+.dots span { display:inline-block; width:8px; height:8px; border-radius:50%; background:#3a4152; margin:0 4px; cursor:pointer;}
+.dots span.on { background:var(--accent);}
 .actions { display:flex; gap:10px; margin-top:12px;}
 .actions a,.actions button { flex:1; text-align:center; padding:10px; border-radius:8px; font-size:14px; cursor:pointer; text-decoration:none;}
 .dl { background:var(--ok); color:#06281a; border:none; font-weight:600;}
@@ -58,7 +68,7 @@ button.parse:disabled { background:#2c3a55; cursor:wait;}
 <div class="row">
 <button class="parse" id="btn" onclick="doParse()">解 析</button>
 </div>
-<div class="hint">支持从整段分享文案中自动提取链接 · 下载走本机代理，媒体链接 15 分钟内有效 · 解析走平台公开接口，无需登录<br>抖音短链分享还会附带「分享者身份」归因解析（这条链接是谁分享的）</div>
+<div class="hint">支持从整段分享文案中自动提取链接 · 下载走本机代理，媒体链接 15 分钟内有效 · 解析走平台公开接口，无需登录<br>抖音短链分享还会附带「分享者身份」归因解析（这条链接是谁分享的） · 多图可左右滑动浏览</div>
 </div>
 <div class="loading" id="loading">解析中，请稍候…</div>
 <div class="err" id="err"></div>
@@ -132,22 +142,68 @@ ${s.profile_url? `<div class="src"><a href="${esc(s.profile_url)}" target="_blan
 </div>`;
 }
 d.medias.forEach((m, i) => {
-const tag = m.kind === 'video'? '视频': '图片';
-const preview = m.kind === 'video'
-? `<video controls preload="metadata" src="${esc(m.proxy_url)}"${m.cover_url? ` poster="${esc(m.cover_url)}"`: ''}></video>`
-: `<img loading="lazy" src="${esc(m.proxy_url)}" alt="图片${i+1}">`;
+if (m.kind !== 'video') return;
 html += `<div class="media-item">
-<div class="kind">${tag} ${i+1} / ${d.medias.length}</div>
-${preview}
+<div class="kind">视频 ${i+1} / ${d.medias.length}</div>
+<video controls preload="metadata" src="${esc(m.proxy_url)}"${m.cover_url? ` poster="${esc(m.cover_url)}"`: ''}></video>
 <div class="actions">
-<a class="dl" href="${esc(m.download_url)}" download>⬇ 下载${tag}</a>
+<a class="dl" href="${esc(m.download_url)}" download>⬇ 下载视频</a>
 <button class="cp" onclick="copyLink('${esc(m.direct_url)}')">复制直链</button>
 </div>
 </div>`;
 });
+const images = d.medias.filter(m => m.kind !== 'video');
+if (images.length) html += renderCarousel(images);
 html += `<details class="json-toggle"><summary>查看原始 JSON</summary><pre>${esc(JSON.stringify(d, null, 2))}</pre></details>`;
 const box = document.getElementById('result');
 box.innerHTML = html; box.style.display = 'block';
+}
+
+// 多图轮播：横向滑动切换（触屏原生滑动 + 左右箭头 + 圆点），下载/复制直链跟随当前页
+const CARS = {};
+let carSeq = 0;
+function renderCarousel(images) {
+const id = 'car' + (carSeq++);
+CARS[id] = { images, i: 0 };
+const slides = images.map(m => `<img src="${esc(m.proxy_url)}" alt="图片" draggable="false">`).join('');
+const multi = images.length > 1;
+const dots = images.map((_, i) =>
+`<span data-i="${i}" class="${i === 0? 'on': ''}" onclick="carJump('${id}',${i})"></span>`).join('');
+return `<div class="media-item">
+<div class="kind" id="${id}-kind">图片 1 / ${images.length}</div>
+<div class="carousel">
+<div class="slides" id="${id}-slides" onscroll="carSync('${id}')">${slides}</div>
+${multi? `<button class="car-btn car-prev" onclick="carGo('${id}',-1)" aria-label="上一张">‹</button>
+<button class="car-btn car-next" onclick="carGo('${id}',1)" aria-label="下一张">›</button>`: ''}
+</div>
+${multi? `<div class="dots" id="${id}-dots">${dots}</div>`: ''}
+<div class="actions">
+<a class="dl" id="${id}-dl" href="${esc(images[0].download_url)}" download>⬇ 下载图片</a>
+<button class="cp" id="${id}-cp" onclick="copyLink('${esc(images[0].direct_url)}')">复制直链</button>
+</div>
+</div>`;
+}
+function carGo(id, dir) {
+const el = document.getElementById(id + '-slides');
+el.scrollBy({ left: dir * el.clientWidth, behavior: 'smooth' });
+}
+function carJump(id, i) {
+const el = document.getElementById(id + '-slides');
+el.scrollTo({ left: i * el.clientWidth, behavior: 'smooth' });
+}
+function carSync(id) {
+const c = CARS[id];
+if (!c) return;
+const el = document.getElementById(id + '-slides');
+const i = Math.round(el.scrollLeft / el.clientWidth);
+if (i === c.i || i < 0 || i >= c.images.length) return;
+c.i = i;
+const m = c.images[i];
+document.getElementById(id + '-kind').textContent = `图片 ${i + 1} / ${c.images.length}`;
+document.getElementById(id + '-dl').href = m.download_url;
+document.getElementById(id + '-cp').setAttribute('onclick', `copyLink('${m.direct_url}')`);
+const dots = document.getElementById(id + '-dots');
+if (dots) [...dots.children].forEach((d, j) => d.classList.toggle('on', j === i));
 }
 
 function copyLink(u) {
