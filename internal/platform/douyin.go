@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -228,8 +229,14 @@ func (p Douyin) parseItemInfo(ctx context.Context, cli *httpx.RawClient, itemID,
 	// 从分享页提取 webId 与 xsstoken（reflow_token），AES-CBC 构造 reflow_id。
 	webID := extractDouyinWebID(shareHTML)
 	token := extractDouyinReflowToken(shareHTML)
-	if webID == "" || token == "" {
-		return nil, fmt.Errorf("分享页缺少 webId 或 reflow token")
+	if token == "" {
+		return nil, fmt.Errorf("分享页缺少 reflow token")
+	}
+	if webID == "" {
+		// 壳页面变体中 webId 字面量为 undefined（服务端未下发设备 ID）。
+		// webId 实为客户端生成的设备标识，服务端不校验其签发来源，
+		// 实测用合成的 19 位随机数同样能调通详情接口。
+		webID = synthDouyinWebID()
 	}
 	reflowID, err := encryptReflowToken(token, webID)
 	if err != nil {
@@ -252,6 +259,20 @@ func (p Douyin) parseItemInfo(ctx context.Context, cli *httpx.RawClient, itemID,
 		return nil, err
 	}
 	return parseDouyinItemInfo(body, p.Name())
+}
+
+// synthDouyinWebID 合成一个 19 位数字 webId（格式同真实 webId，如 7695853187903473206）。
+// 用于壳页面 webId=undefined 时的兜底：服务端不校验 webId 签发来源，合成值可正常调用详情接口。
+func synthDouyinWebID() string {
+	b := make([]byte, 19)
+	if _, err := rand.Read(b); err != nil {
+		return ""
+	}
+	b[0] = '1' + b[0]%9
+	for i := 1; i < 19; i++ {
+		b[i] = '0' + b[i]%10
+	}
+	return string(b)
 }
 
 // extractDouyinWebID 从分享页 HTML 提取 webId（兼容 JSON 内嵌与元素属性两种写法）。

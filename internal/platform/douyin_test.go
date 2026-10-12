@@ -83,6 +83,32 @@ func TestParseDouyinItemInfoError(t *testing.T) {
 	}
 }
 
+// 回归：合成 webId 必须为 19 位数字（首位非零），用于壳页面 webId=undefined 时的兜底
+func TestSynthDouyinWebID(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		w := synthDouyinWebID()
+		if len(w) != 19 {
+			t.Fatalf("webId 长度应为 19，得到 %q", w)
+		}
+		if w[0] == '0' {
+			t.Fatalf("webId 首位不应为 0，得到 %q", w)
+		}
+		for _, c := range w {
+			if c < '0' || c > '9' {
+				t.Fatalf("webId 应全为数字，得到 %q", w)
+			}
+		}
+	}
+}
+
+// 回归：webId=undefined 不应再导致直接失败（合成 webId 兜底）
+func TestExtractDouyinWebIDUndefined(t *testing.T) {
+	html := `<div id='douyin_reflow_webId' webId=undefined></div>`
+	if w := extractDouyinWebID(html); w != "" {
+		t.Fatalf("webId=undefined 应被拒绝，得到 %q", w)
+	}
+}
+
 // 回归：图集的 video.play_addr 是 BGM 配乐（mp3），不得被误标为 kind=video
 func TestParseDouyinItemInfoAlbumSkipsBGM(t *testing.T) {
 	fixture := `{
