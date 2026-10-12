@@ -21,7 +21,6 @@ type Parser interface {
 func All() []Parser {
 	return []Parser{
 		Douyin{},
-		TikTok{},
 		Kuaishou{},
 		Xiaohongshu{},
 		Weibo{},

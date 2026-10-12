@@ -32,7 +32,6 @@ const mediaTTL = 15 * time.Minute
 // 各平台下载时的 Referer（部分 CDN 校验）。
 var platformReferer = map[string]string{
 	"douyin":      "https://www.douyin.com/",
-	"tiktok":      "https://www.tiktok.com/",
 	"kuaishou":    "https://www.kuaishou.com/",
 	"xiaohongshu": "https://www.xiaohongshu.com/",
 	"weibo":       "https://weibo.com/",

@@ -8,8 +8,8 @@ type Media struct {
 	CoverURL  string `json:"cover_url,omitempty"`
 	Width     int    `json:"width,omitempty"`
 	Height    int    `json:"height,omitempty"`
-	// Cookie 代理下载该媒体时需附带的 Cookie（如 TikTok playAddr 要求
-	// tt_chain_token Cookie 与 URL 中 tk 参数绑定）。不序列化到前端。
+	// Cookie 代理下载该媒体时需附带的 Cookie（部分 CDN 要求 Cookie 与
+	// URL 签名参数绑定）。不序列化到前端。
 	Cookie string `json:"-"`
 }
 

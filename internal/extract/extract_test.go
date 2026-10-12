@@ -50,7 +50,6 @@ cases:= map[string]string{
 "https://weibo.com/1234567890/AbCdEfGh": "weibo",
 "https://www.bilibili.com/video/BV1xx411c7mD": "bilibili",
 "https://b23.tv/abc123": "bilibili",
-"https://vm.tiktok.com/xyz/": "tiktok",
 "https://x.com/user/status/1234567890123456789": "x",
 "https://twitter.com/user/status/1234567890": "x",
 "https://www.instagram.com/reel/AbCdEfGhIjK/": "instagram",

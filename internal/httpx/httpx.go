@@ -333,7 +333,7 @@ func NewClientWithJar() *Client {
 }
 
 // CookieHeader 将 jar 中适用于 rawURL 的 cookie 拼成 Cookie 请求头值。
-// 用于 CDN 要求 Cookie 与 URL 签名参数绑定的场景（如 TikTok playAddr 的 tk=tt_chain_token）。
+// 用于 CDN 要求 Cookie 与 URL 签名参数绑定的场景。
 func CookieHeader(jar http.CookieJar, rawURL string) string {
 	if jar == nil {
 		return ""

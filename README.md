@@ -15,7 +15,6 @@
 | 小红书 | `xhslink.com` / `xhslink.cn` / `xiaohongshu.com` | 视频 / 笔记原图 |
 | 微博 | `weibo.com` 分享链接 | 视频（最高清晰度）/ 原图 |
 | B站 | `bilibili.com` / `b23.tv`（支持 `?p=` 分 P） | 单段 MP4（含音轨） |
-| TikTok | `vm.tiktok.com` / `tiktok.com` | 无水印视频（图文帖→原图） |
 | X (Twitter) | `x.com` / `twitter.com` 推文链接 | 视频（最高码率）/ 原图 |
 | Instagram | `instagram.com` 帖子/Reels 链接 | 视频 / 图片 |
 
@@ -88,7 +87,6 @@ go build -o wanext ./cmd/wanext
   `xsec_token` 一次性、短时有效，请用刚分享的新链接。
 - **微博**：`mid62`→`mid10` → `ajax/statuses/show` 接口 → 按清晰度优先级选流 / `large` 原图。
 - **B站**：`view` 接口取 CID → `playurl` 接口 `fnval=0` 取单段 MP4（含音轨，无需合并；未登录最高 720P 左右）。
-- **TikTok**：页面 `__UNIVERSAL_DATA_FOR_REHYDRATION__` JSON 中的 `playAddr`（网页端为无水印 H.264）。
 - **X**：vxtwitter 公开 API，取 `media_extended` 最高质量媒体。
 - **Instagram**：`embed/captioned` 免登录页面内嵌 JSON 的 `video_url` / `display_url`；
   CDN 对 UA 指纹敏感，代理下载时使用极简 UA。
