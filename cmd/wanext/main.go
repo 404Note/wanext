@@ -2,6 +2,7 @@
 //
 //	wanext serve [-addr 127.0.0.1:8080]   启动 Web 服务（含测试页面）
 //	wanext parse "<分享文案或链接>"        命令行解析并输出 JSON
+//	wanext sharer "<抖音分享文案或短链>"    解析分享者身份（这条链接是谁分享的）
 //	wanext version                        显示版本
 package main
 
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"wanext/internal/extract"
+	"wanext/internal/platform"
 	"wanext/internal/server"
 )
 
@@ -51,6 +53,33 @@ func main() {
 		}
 		b, _ := json.MarshalIndent(res, "", "  ")
 		fmt.Println(string(b))
+	case "sharer":
+		// 抖音分享者身份解析：还原「这条分享链接是谁分享的」
+		text := strings.Join(os.Args[2:], " ")
+		if strings.TrimSpace(text) == "" {
+			fmt.Fprintln(os.Stderr, "用法: wanext sharer \"<抖音分享文案或短链>\"")
+			os.Exit(2)
+		}
+		shortURL := ""
+		for _, u := range extract.ExtractURLs(text) {
+			if strings.Contains(u, "v.douyin.com") {
+				shortURL = u
+				break
+			}
+		}
+		if shortURL == "" {
+			fmt.Fprintln(os.Stderr, "未从输入中找到 v.douyin.com 短链")
+			os.Exit(1)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		res, err := platform.Douyin{}.ResolveSharer(ctx, shortURL)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "解析失败:", err)
+			os.Exit(1)
+		}
+		b, _ := json.MarshalIndent(res, "", "  ")
+		fmt.Println(string(b))
 	case "version":
 		fmt.Println("wanext", version)
 	default:
@@ -65,6 +94,7 @@ func usage() {
 用法:
   wanext serve [-addr 127.0.0.1:8080]   启动 Web 服务，在浏览器中测试
   wanext parse "<分享文案或链接>"         命令行解析，输出 JSON
+  wanext sharer "<抖音分享文案或短链>"    解析分享者身份（这条链接是谁分享的）
   wanext version                        显示版本
 
 环境变量:

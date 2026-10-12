@@ -58,7 +58,7 @@ button.parse:disabled { background:#2c3a55; cursor:wait;}
 <div class="row">
 <button class="parse" id="btn" onclick="doParse()">解 析</button>
 </div>
-<div class="hint">支持从整段分享文案中自动提取链接 · 下载走本机代理，媒体链接 15 分钟内有效 · 解析走平台公开接口，无需登录</div>
+<div class="hint">支持从整段分享文案中自动提取链接 · 下载走本机代理，媒体链接 15 分钟内有效 · 解析走平台公开接口，无需登录<br>抖音短链分享还会附带「分享者身份」归因解析（这条链接是谁分享的）</div>
 </div>
 <div class="loading" id="loading">解析中，请稍候…</div>
 <div class="err" id="err"></div>
@@ -121,6 +121,16 @@ let html = `<div class="meta">
 <div class="author">${d.author? '作者：' + esc(d.author): ''}</div>
 ${d.page_url? `<div class="src"><a href="${esc(d.page_url)}" target="_blank">查看原帖 ↗</a></div>`: ''}
 </div>`;
+if (d.sharer) {
+const s = d.sharer;
+html += `<div class="meta">
+<div class="badge">分享者</div>
+<h2>${esc(s.nickname)}</h2>
+<div class="author">${s.douyin_id? '抖音号：' + esc(s.douyin_id): ''}${s.share_time? ' · 分享于 ' + esc(s.share_time): ''}</div>
+${s.signature? `<div class="author">签名：${esc(s.signature)}</div>`: ''}
+${s.profile_url? `<div class="src"><a href="${esc(s.profile_url)}" target="_blank">分享者主页 ↗</a></div>`: ''}
+</div>`;
+}
 d.medias.forEach((m, i) => {
 const tag = m.kind === 'video'? '视频': '图片';
 const preview = m.kind === 'video'

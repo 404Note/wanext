@@ -78,6 +78,32 @@ func (c *RawClient) RawGet(ctx context.Context, rawURL string, headers []Ordered
 	return "", nil, fmt.Errorf("重定向次数超限")
 }
 
+// FirstHop 只发一次 GET，不跟随重定向，返回状态码与 Location 头（已做相对地址展开）。
+//
+// 抖音短链的归因参数（activity_info / u_code）只出现在第一跳的 Location 里，
+// 完整跟随重定向反而拿不到，因此分享者身份解析需要此方法。
+func (c *RawClient) FirstHop(ctx context.Context, rawURL string, headers []OrderedHeader) (int, string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return 0, "", err
+	}
+	code, respHeaders, _, err := c.doOnce(ctx, u, headers)
+	if err != nil {
+		return 0, "", err
+	}
+	if c.Jar != nil {
+		hr := &http.Response{Header: respHeaders, Request: &http.Request{URL: u}}
+		c.Jar.SetCookies(u, hr.Cookies())
+	}
+	loc := respHeaders.Get("Location")
+	if loc != "" {
+		if nu, err := u.Parse(loc); err == nil {
+			loc = nu.String()
+		}
+	}
+	return code, loc, nil
+}
+
 func (c *RawClient) doOnce(ctx context.Context, u *url.URL, headers []OrderedHeader) (int, http.Header, []byte, error) {
 	addr := u.Host
 	if _, _, err := net.SplitHostPort(addr); err != nil {

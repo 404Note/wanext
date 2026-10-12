@@ -111,12 +111,13 @@ type apiMedia struct {
 }
 
 type apiResult struct {
-	Platform string     `json:"platform"`
-	Title    string     `json:"title"`
-	Author   string     `json:"author"`
-	CoverURL string     `json:"cover_url,omitempty"`
-	PageURL  string     `json:"page_url,omitempty"`
-	Medias   []apiMedia `json:"medias"`
+	Platform string            `json:"platform"`
+	Title    string            `json:"title"`
+	Author   string            `json:"author"`
+	CoverURL string            `json:"cover_url,omitempty"`
+	PageURL  string            `json:"page_url,omitempty"`
+	Medias   []apiMedia        `json:"medias"`
+	Sharer   *model.SharerInfo `json:"sharer,omitempty"`
 }
 
 var illegalFilenameRe = regexp.MustCompile(`[\\/:*?"<>|]`)
@@ -182,7 +183,7 @@ func New() http.Handler {
 		}
 		out := apiResult{
 			Platform: res.Platform, Title: res.Title, Author: res.Author,
-			CoverURL: res.CoverURL, PageURL: res.PageURL,
+			CoverURL: res.CoverURL, PageURL: res.PageURL, Sharer: res.Sharer,
 		}
 		for _, m := range res.Medias {
 			token := reg.Put(&mediaEntry{
@@ -210,6 +211,37 @@ func New() http.Handler {
 			return
 		}
 		proxyMedia(w, r, e)
+	})
+
+	// 抖音分享者身份解析：从分享文案/短链还原「这条链接是谁分享的」
+	//（分享者归因参数解析，思路参考 hiFOFA/douyin-share-resolver）。
+	mux.HandleFunc("POST /api/douyin/sharer", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			URL string `json:"url"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "请求体必须是 JSON：{\"url\":\"...\"}"})
+			return
+		}
+		shortURL := ""
+		for _, u := range extract.ExtractURLs(req.URL) {
+			if pu, err := url.Parse(u); err == nil && strings.Contains(strings.ToLower(pu.Hostname()), "v.douyin.com") {
+				shortURL = u
+				break
+			}
+		}
+		if shortURL == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "未从输入中找到 v.douyin.com 短链"})
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+		defer cancel()
+		res, err := platform.Douyin{}.ResolveSharer(ctx, shortURL)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
 	})
 
 	return mux

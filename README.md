@@ -10,7 +10,7 @@
 
 | 平台 | 链接形式 | 可获取 |
 |---|---|---|
-| 抖音 | `v.douyin.com` / `douyin.com` 短链、完整分享文案 | 无水印视频（图集→原图） |
+| 抖音 | `v.douyin.com` / `douyin.com` 短链、完整分享文案 | 无水印视频（图集→原图）、分享者身份（归因） |
 | 快手 | `v.kuaishou.com` / `kuaishou.com` | 无水印视频 |
 | 小红书 | `xhslink.com` / `xiaohongshu.com` | 视频 / 笔记原图 |
 | 微博 | `weibo.com` 分享链接 | 视频（最高清晰度）/ 原图 |
@@ -33,6 +33,9 @@ go build -o wanext ./cmd/wanext
 # 命令行解析
 ./wanext parse "7.77 复制打开抖音 https://v.douyin.com/xxxx/ ..."
 ./wanext parse "https://www.bilibili.com/video/BV1xx411c7mD"
+
+# 抖音分享者身份解析：还原「这条分享链接是谁分享的」（不是视频作者，是点转发的人）
+./wanext sharer "7.77 复制打开抖音 https://v.douyin.com/xxxx/ ..."
 ```
 
 ## API
@@ -59,6 +62,16 @@ go build -o wanext ./cmd/wanext
 
 - `GET /api/media/{token}` —— 同源代理预览，支持 `Range` 断点续传；加 `?download=1` 作为附件下载。
 - `GET /api/platforms` —— 支持的平台列表。
+- `POST /api/douyin/sharer` —— 抖音分享者身份解析（请求体同上），返回分享者与视频作者的公开资料：
+
+```json
+{
+  "video_id": "作品 ID",
+  "sharer": {"nickname": "分享者昵称", "douyin_id": "抖音号", "signature": "签名",
+             "profile_url": "主页", "share_time": "2025-05-02 22:42:11"},
+  "author": {"nickname": "视频作者昵称", "douyin_id": "抖音号", "signature": "签名", "profile_url": "主页"}
+}
+```
 
 媒体令牌默认 15 分钟有效，过期后重新解析即可。
 
@@ -66,6 +79,10 @@ go build -o wanext ./cmd/wanext
 
 - **抖音**：短链跳转 → 提取作品 ID → 访客 `ttwid` Cookie 调 `iesdouyin` 详情接口 → CDN 地址 `playwm`→`play`
   （水印由 App 客户端合成，CDN 文件本身无水印）；接口被签名拦截时兜底走 `video_id` 免签播放接口。
+  附加功能——**分享者身份解析**（思路参考 [douyin-share-resolver](https://github.com/hiFOFA/douyin-share-resolver)）：
+  只跟第一跳 302 取归因参数 → `activity_info` 与 `u_code`（23 进制）双通道提取分享者 uid 并交叉验证 →
+  注册 `ttwid` → 数字 uid 反查公开资料。解析结果的 `sharer` 字段 / `POST /api/douyin/sharer` /
+  `wanext sharer` 均可用；老版分享或私信转发不带归因参数时无法识别。
 - **快手**：视频页 HTML 中提取 `photoUrl`。
 - **小红书**：笔记页 `window.__INITIAL_STATE__` → `sns-webpic.xhscdn.com` 原图 / 视频流 `masterUrl`。
   `xsec_token` 一次性、短时有效，请用刚分享的新链接。

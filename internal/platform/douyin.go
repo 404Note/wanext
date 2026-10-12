@@ -63,6 +63,7 @@ func (p Douyin) Parse(ctx context.Context, rawURL string) (*model.Result, error)
 
 	// 3. 主路径：分享页内嵌的 _ROUTER_DATA（需 Chrome TLS 指纹 + 头顺序才会返回完整数据）
 	if res, body, err := p.parseSharePage(ctx, cli, itemID, finalURL); err == nil {
+		p.attachSharer(ctx, rawURL, res)
 		return res, nil
 	} else {
 		lastErr = err
@@ -79,6 +80,7 @@ func (p Douyin) Parse(ctx context.Context, rawURL string) (*model.Result, error)
 	}
 	if res, err := p.parseItemInfo(ctx, cli, itemID, fallbackBody); err == nil {
 		res.PageURL = finalURL
+		p.attachSharer(ctx, rawURL, res)
 		return res, nil
 	} else {
 		lastErr = err
@@ -92,6 +94,14 @@ func (p Douyin) Parse(ctx context.Context, rawURL string) (*model.Result, error)
 	diag := fmt.Sprintf("页面长度=%d, 含_ROUTER_DATA=%v, 含webId=%v",
 		len(diagBody), strings.Contains(diagBody, "_ROUTER_DATA"), strings.Contains(diagBody, "webId"))
 	return nil, fmt.Errorf("抖音解析失败（%v；%s）；若当前网络持续失败，可尝试更换出口 IP", lastErr, diag)
+}
+
+// attachSharer 尽力解析分享链接背后的分享者身份并挂到结果上。
+// 附加功能：失败时静默跳过，不影响媒体解析主流程。
+func (p Douyin) attachSharer(ctx context.Context, rawURL string, res *model.Result) {
+	if sr, err := p.ResolveSharer(ctx, rawURL); err == nil && sr != nil && sr.Sharer != nil {
+		res.Sharer = sr.Sharer
+	}
 }
 
 // douyinChromeHeaders 构造 Chrome 顺序的请求头（按实测成功的组合）。
