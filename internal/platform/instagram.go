@@ -19,7 +19,12 @@ import (
 // Tier 2: GraphQL（需 LSD/CSRF token + Session Cookie）
 // Tier 3: Open Graph meta 标签
 //
-// 注意：Instagram 对 TLS 指纹敏感，需配合 httpx 的 Chrome 指纹使用。
+// 注意：Instagram 做"TLS 指纹 × 请求头"一致性校验。TLS 用 httpx 的
+// Chrome 指纹（utls）即可过关；但页面导航请求必须带 Sec-Fetch-* 头
+// （见 igPageHeaders），否则返回 HTTP 200 的 httpErrorPage 降级页，
+// 内嵌 Relay 查询是 httpErrorPage 而非 postPage，Tier 1 找不到媒体。
+// curl_cffi 默认自带这些浏览器头，Go net/http 不会——
+// 这才是之前 "Python 可行、Go 不可行" 的真正原因，而非 TLS 密码学差异。
 type Instagram struct{}
 
 func (Instagram) Name() string  { return "instagram" }
@@ -43,6 +48,28 @@ var (
 	igOGVideo = regexp.MustCompile(`<meta[^>]+property="og:video(?::secure_url)?"[^>]+content="([^"]+)"`)
 	igOGImage = regexp.MustCompile(`<meta[^>]+property="og:image(?::secure_url)?"[^>]+content="([^"]+)"`)
 )
+
+// igPageHeaders 顶级导航请求的完整请求头。
+// 关键发现（2026-10-13 实测）：Instagram 按请求头做一致性校验——
+// 缺少 Sec-Fetch-* 时，即使 TLS 指纹正确，也只返回 httpErrorPage 降级页
+// （HTTP 200 外壳，内嵌 Relay 查询为 httpErrorPage 而非 postPage），
+// 导致 Tier 1 找不到媒体 JSON。curl_cffi 默认自带这些浏览器头，
+// Go 的 net/http 不会，所以之前误判为 "TLS 指纹被识破"。
+// 实测 Sec-Fetch-Site / Sec-Fetch-Mode 任一存在即返回完整 postPage，
+// 这里按 Chrome 顶级导航的真实值四个全发。
+func igPageHeaders() map[string]string {
+	return map[string]string{
+		"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+		"Accept-Language": "en-US,en;q=0.9",
+		"Cache-Control":   "no-cache",
+		"Pragma":          "no-cache",
+		"User-Agent":      igUserAgent,
+		"Sec-Fetch-Dest":  "document",
+		"Sec-Fetch-Mode":  "navigate",
+		"Sec-Fetch-Site":  "none",
+		"Sec-Fetch-User":  "?1",
+	}
+}
 
 // shortcodeToMediaID 将 Instagram shortcode 转换为数字 media ID。
 func shortcodeToMediaID(shortcode string) string {
@@ -126,13 +153,7 @@ func (p Instagram) toResult(code, pageURL string, m *igMedia) *model.Result {
 
 // parsePage Tier 1：抓取公开页面，解析 JSON scripts，递归搜索媒体对象。
 func (p Instagram) parsePage(ctx context.Context, sess *igSession, pageURL, shortcode string) (*igMedia, error) {
-	body, err := p.get(ctx, sess, pageURL, map[string]string{
-		"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-		"Accept-Language": "en-US,en;q=0.9",
-		"Cache-Control":   "no-cache",
-		"Pragma":          "no-cache",
-		"User-Agent":      igUserAgent,
-	})
+	body, err := p.get(ctx, sess, pageURL, igPageHeaders())
 	if err != nil {
 		return nil, err
 	}
@@ -151,11 +172,7 @@ func (p Instagram) parsePage(ctx context.Context, sess *igSession, pageURL, shor
 // parseGraphQL Tier 2：GraphQL 回退。
 func (p Instagram) parseGraphQL(ctx context.Context, sess *igSession, pageURL, shortcode, mediaID string) (*igMedia, error) {
 	// 先拿页面提取 LSD 和 CSRF
-	body, err := p.get(ctx, sess, pageURL, map[string]string{
-		"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-		"Accept-Language": "en-US,en;q=0.9",
-		"User-Agent":      igUserAgent,
-	})
+	body, err := p.get(ctx, sess, pageURL, igPageHeaders())
 	if err != nil {
 		return nil, err
 	}
@@ -167,11 +184,7 @@ func (p Instagram) parseGraphQL(ctx context.Context, sess *igSession, pageURL, s
 
 	// 如果缺 token，尝试请求首页补齐
 	if lsd == "" || csrf == "" {
-		if b2, err2 := p.get(ctx, sess, "https://www.instagram.com/", map[string]string{
-			"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-			"Accept-Language": "en-US,en;q=0.9",
-			"User-Agent":      igUserAgent,
-		}); err2 == nil {
+		if b2, err2 := p.get(ctx, sess, "https://www.instagram.com/", igPageHeaders()); err2 == nil {
 			s2 := string(b2)
 			p2 := extractJSONPayloads(s2)
 			if lsd == "" {
@@ -241,9 +254,7 @@ func (p Instagram) parseGraphQL(ctx context.Context, sess *igSession, pageURL, s
 
 // parseOGMeta Tier 3：Open Graph meta 标签降级。
 func (p Instagram) parseOGMeta(ctx context.Context, sess *igSession, pageURL string) *igMedia {
-	body, err := p.get(ctx, sess, pageURL, map[string]string{
-		"User-Agent": igUserAgent,
-	})
+	body, err := p.get(ctx, sess, pageURL, igPageHeaders())
 	if err != nil {
 		return nil
 	}
