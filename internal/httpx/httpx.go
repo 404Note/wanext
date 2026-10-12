@@ -88,16 +88,7 @@ var (
 // （它无法在非 *tls.Conn 上协商 HTTP/2）。
 func chromeHTTP11Spec() utls.ClientHelloSpec {
 	chromeSpecOnce.Do(func() {
-		chromeSpec = buildChromeSpec()
-	})
-	// 暂时禁用洗牌，用固定顺序测试
-	// TODO: 确认洗牌是否为问题后，再决定是否启用
-	return chromeSpec
-}
-
-// buildChromeSpec 构造基准 Chrome 124 ClientHelloSpec（固定顺序）。
-func buildChromeSpec() utls.ClientHelloSpec {
-	return utls.ClientHelloSpec{
+		chromeSpec = utls.ClientHelloSpec{
 			CipherSuites: []uint16{
 				utls.GREASE_PLACEHOLDER,
 				utls.TLS_AES_128_GCM_SHA256,
@@ -119,16 +110,19 @@ func buildChromeSpec() utls.ClientHelloSpec {
 			CompressionMethods: []byte{0x00},
 			Extensions: []utls.TLSExtension{
 				&utls.UtlsGREASEExtension{},
-				// 顺序匹配 Chrome 124 真实 JA3（curl-impersonate signatures 库）：
-				// 65037-43-0-35-10-18-51-45-16-11-27-23-5-13-65281
-				utls.BoringGREASEECH(),
+				&utls.KeyShareExtension{KeyShares: []utls.KeyShare{
+					{Group: utls.CurveID(utls.GREASE_PLACEHOLDER), Data: []byte{0}},
+					{Group: utls.X25519Kyber768Draft00},
+					{Group: utls.X25519},
+				}},
 				&utls.SupportedVersionsExtension{Versions: []uint16{
 					utls.GREASE_PLACEHOLDER,
 					utls.VersionTLS13,
 					utls.VersionTLS12,
 				}},
-				&utls.SNIExtension{},
-				&utls.SessionTicketExtension{},
+				&utls.PSKKeyExchangeModesExtension{Modes: []uint8{utls.PskModeDHE}},
+				&utls.RenegotiationInfoExtension{Renegotiation: utls.RenegotiateOnceAsClient},
+				utls.BoringGREASEECH(),
 				&utls.SupportedCurvesExtension{Curves: []utls.CurveID{
 					utls.GREASE_PLACEHOLDER,
 					utls.X25519Kyber768Draft00,
@@ -136,20 +130,12 @@ func buildChromeSpec() utls.ClientHelloSpec {
 					utls.CurveP256,
 					utls.CurveP384,
 				}},
+				&utls.StatusRequestExtension{},
+				&utls.SessionTicketExtension{},
 				&utls.SCTExtension{},
-				&utls.KeyShareExtension{KeyShares: []utls.KeyShare{
-					{Group: utls.CurveID(utls.GREASE_PLACEHOLDER), Data: []byte{0}},
-					{Group: utls.X25519Kyber768Draft00},
-					{Group: utls.X25519},
-				}},
-				&utls.PSKKeyExchangeModesExtension{Modes: []uint8{utls.PskModeDHE}},
-				&utls.ALPNExtension{AlpnProtocols: []string{"http/1.1"}},
-				&utls.SupportedPointsExtension{SupportedPoints: []byte{0x00}},
 				&utls.UtlsCompressCertExtension{Algorithms: []utls.CertCompressionAlgo{
 					utls.CertCompressionBrotli,
 				}},
-				&utls.ExtendedMasterSecretExtension{},
-				&utls.StatusRequestExtension{},
 				&utls.SignatureAlgorithmsExtension{SupportedSignatureAlgorithms: []utls.SignatureScheme{
 					utls.ECDSAWithP256AndSHA256,
 					utls.PSSWithSHA256,
@@ -160,10 +146,16 @@ func buildChromeSpec() utls.ClientHelloSpec {
 					utls.PSSWithSHA512,
 					utls.PKCS1WithSHA512,
 				}},
-				&utls.RenegotiationInfoExtension{Renegotiation: utls.RenegotiateOnceAsClient},
+				&utls.SNIExtension{},
+				&utls.ApplicationSettingsExtension{SupportedProtocols: []string{"h2"}},
+				&utls.ExtendedMasterSecretExtension{},
+				&utls.ALPNExtension{AlpnProtocols: []string{"http/1.1"}},
+				&utls.SupportedPointsExtension{SupportedPoints: []byte{0x00}},
 				&utls.UtlsGREASEExtension{},
 			},
-	}
+		}
+	})
+	return chromeSpec
 }
 
 // dialFingerprinted 先（按需）经代理 CONNECT，再用 Chrome 指纹完成 TLS 握手。
