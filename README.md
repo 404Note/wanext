@@ -12,7 +12,7 @@
 |---|---|---|
 | 抖音 | `v.douyin.com` / `douyin.com` 短链、完整分享文案 | 无水印视频（图集→原图）、分享者身份（归因） |
 | 快手 | `v.kuaishou.com` / `kuaishou.com` | 无水印视频 |
-| 小红书 | `xhslink.com` / `xiaohongshu.com` | 视频 / 笔记原图 |
+| 小红书 | `xhslink.com` / `xhslink.cn` / `xiaohongshu.com` | 视频 / 笔记原图 |
 | 微博 | `weibo.com` 分享链接 | 视频（最高清晰度）/ 原图 |
 | B站 | `bilibili.com` / `b23.tv`（支持 `?p=` 分 P） | 单段 MP4（含音轨） |
 | TikTok | `vm.tiktok.com` / `tiktok.com` | 无水印视频（图文帖→原图） |
