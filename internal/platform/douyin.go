@@ -31,6 +31,8 @@ var (
 	douyinPathIDRe  = regexp.MustCompile(`/(?:video|note)/(\d{6,})`)
 	douyinJSONIDRe  = regexp.MustCompile(`"itemId"\s*:\s*"(\d{6,})"`)
 	douyinVideoIDRe = regexp.MustCompile(`"video_id"\s*:\s*"([0-9a-fA-F]{32})"`)
+	// Next.js RSC 数据块：self.__pace_f.push([1,"..."])
+	douyinRSCPushRe = regexp.MustCompile(`(?s)self\.__pace_f\.push\(\[1,\s*"((?:[^"\\]|\\.)*)"\s*\]\)`)
 )
 
 func (p Douyin) Parse(ctx context.Context, rawURL string) (*model.Result, error) {
@@ -132,7 +134,12 @@ func (p Douyin) parseSharePage(ctx context.Context, cli *httpx.RawClient, itemID
 	}
 	item, err := douyinRouterItem(body)
 	if err != nil {
-		return nil, body, err
+		// 补充通道：Next.js RSC 内嵌数据（部分降级页仍带 RSC 数据块）
+		if rscItem, rscErr := douyinRSCItem(body); rscErr == nil {
+			item = rscItem
+		} else {
+			return nil, body, err
+		}
 	}
 	res, err := douyinItemToResult(item, p.Name())
 	if err != nil {
@@ -187,6 +194,128 @@ func douyinRouterItem(body []byte) (any, error) {
 		return items[0], nil
 	}
 	return nil, fmt.Errorf("分享页缺少 videoInfoRes")
+}
+
+// douyinRSCItem 从 Next.js RSC 内嵌数据（self.__pace_f.push）中提取作品 detail。
+// 作为 _ROUTER_DATA 缺失时的补充通道：部分降级页仍带 RSC 数据块，且实况照片的
+// 动态视频地址（images[i].video.play_addr）多见于 RSC/SSR 直出数据。
+func douyinRSCItem(body []byte) (any, error) {
+	s := string(body)
+	if !strings.Contains(s, "__pace_f") {
+		return nil, fmt.Errorf("分享页缺少 RSC 数据")
+	}
+	for _, m := range douyinRSCPushRe.FindAllStringSubmatch(s, -1) {
+		chunk := m[1]
+		// 预过滤：只看可能含作品详情的数据块
+		if !strings.Contains(chunk, "detail") {
+			continue
+		}
+		if !strings.Contains(chunk, "awemeId") && !strings.Contains(chunk, "aweme_id") &&
+			!strings.Contains(chunk, "images") {
+			continue
+		}
+		// 还原 JS 字符串转义
+		var unescaped string
+		if err := json.Unmarshal([]byte(`"`+chunk+`"`), &unescaped); err != nil {
+			continue
+		}
+		// 从第一个 { 或 [ 起配平提取 JSON
+		start := strings.IndexAny(unescaped, "{[")
+		if start < 0 {
+			continue
+		}
+		raw, ok := extractBalancedJSONAny(unescaped[start:])
+		if !ok {
+			continue
+		}
+		var node any
+		if err := json.Unmarshal([]byte(raw), &node); err != nil {
+			continue
+		}
+		if d := findAwemeDetail(node); d != nil {
+			return d, nil
+		}
+	}
+	return nil, fmt.Errorf("RSC 数据中未找到作品详情")
+}
+
+// extractBalancedJSONAny 从 s 开头提取第一个配平的 JSON 对象或数组。
+func extractBalancedJSONAny(s string) (string, bool) {
+	start := strings.IndexAny(s, "{[")
+	if start < 0 {
+		return "", false
+	}
+	open, close := s[start], byte('}')
+	if open == '[' {
+		close = ']'
+	}
+	depth := 0
+	inStr := false
+	esc := false
+	for i := start; i < len(s); i++ {
+		c := s[i]
+		if inStr {
+			if esc {
+				esc = false
+			} else if c == '\\' {
+				esc = true
+			} else if c == '"' {
+				inStr = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			inStr = true
+		case open:
+			depth++
+		case close:
+			depth--
+			if depth == 0 {
+				return s[start : i+1], true
+			}
+		}
+	}
+	return "", false
+}
+
+// findAwemeDetail 在解码后的 JSON 树中递归查找作品 detail 节点。
+func findAwemeDetail(node any) map[string]any {
+	switch n := node.(type) {
+	case map[string]any:
+		if aw, ok := n["aweme"].(map[string]any); ok {
+			if d, ok := aw["detail"].(map[string]any); ok && isAwemeDetail(d) {
+				return d
+			}
+		}
+		if d, ok := n["detail"].(map[string]any); ok && isAwemeDetail(d) {
+			return d
+		}
+		if d, ok := n["aweme_detail"].(map[string]any); ok {
+			return d
+		}
+		for _, v := range n {
+			if r := findAwemeDetail(v); r != nil {
+				return r
+			}
+		}
+	case []any:
+		for _, v := range n {
+			if r := findAwemeDetail(v); r != nil {
+				return r
+			}
+		}
+	}
+	return nil
+}
+
+func isAwemeDetail(d map[string]any) bool {
+	for _, k := range []string{"awemeId", "aweme_id", "images", "video"} {
+		if _, ok := d[k]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // extractBalancedJSON 从 s 开头提取第一个配平的 JSON 对象。
@@ -367,39 +496,151 @@ func parseDouyinItemInfo(body []byte, platformName string) (*model.Result, error
 	return douyinItemToResult(item, platformName)
 }
 
-// douyinItemToResult 把作品 item 对象转为 Result（分享页/_ROUTER_DATA 与详情接口共用）。
+// douyinItemToResult 把作品 item 对象转为 Result（分享页/_ROUTER_DATA、RSC 与详情接口共用）。
+// 兼容 snake_case（详情接口）与 camelCase（RSC/SSR 直出）两种字段风格。
 func douyinItemToResult(item any, platformName string) (*model.Result, error) {
+	m, _ := item.(map[string]any)
+	if m == nil {
+		return nil, fmt.Errorf("作品数据格式异常")
+	}
 	res := &model.Result{
 		Platform: platformName,
-		Title:    httpx.S(item, "desc"),
-		Author:   httpx.S(item, "author", "nickname"),
+		Title:    dyStr(m, "desc", "item_title", "itemTitle", "preview_title"),
+		Author:   dyStr(httpx.J(m, "author"), "nickname"),
 	}
-	video := httpx.J(item, "video")
-	res.CoverURL = httpx.S(video, "cover", "url_list", "0")
-	images := httpx.Arr(item, "images")
-	// 图集（images 非空）时 video.play_addr 是 BGM 配乐地址，不是正片视频，必须跳过；
+	video := httpx.J(m, "video")
+	res.CoverURL = dyFirstURL(video, "origin_cover", "originCover", "cover", "dynamic_cover", "dynamicCover")
+	if res.CoverURL == "" {
+		res.CoverURL = dyFirstURL(video, "coverUrlList", "cover_url_list")
+	}
+	images := dyArr(m, "images", "imagesList", "imgList")
+	if len(images) == 0 {
+		if ipi, ok := httpx.J(m, "image_post_info", "imagePostInfo").(map[string]any); ok {
+			images = dyArr(ipi, "images", "imagesList")
+		}
+	}
+	// 图集（images 非空）时顶层 video.play_addr 是 BGM 配乐地址，不是正片视频，必须跳过；
 	// 否则配乐 mp3 会被误标为 kind=video 混入结果。
 	if len(images) == 0 {
 		// 视频：playwm → play 即为无水印地址（水印由 App 客户端合成，CDN 文件本身干净）
-		for _, u := range httpx.Arr(video, "play_addr", "url_list") {
-			if s, ok := u.(string); ok && s != "" {
-				clean := strings.Replace(s, "playwm", "play", 1)
-				res.Medias = append(res.Medias, model.Media{Kind: "video", DirectURL: clean, CoverURL: res.CoverURL})
-			}
+		for _, s := range dyCollectPlayURLs(dyPick(video, "play_addr", "playAddr")) {
+			clean := douyinCleanPlayURL(s)
+			res.Medias = append(res.Medias, model.Media{Kind: "video", DirectURL: clean, CoverURL: res.CoverURL})
 		}
 	}
-	// 图集
+	// 图集：每张图片的原图 + 实况照片的动态视频轨（images[i].video.play_addr）
 	for _, img := range images {
-		urls := httpx.Arr(img, "url_list")
-		if len(urls) == 0 {
-			continue
+		if u := dyFirstURL(img, "url_list", "urlList", "download_url_list", "downloadUrlList"); u != "" {
+			res.Medias = append(res.Medias, model.Media{Kind: "image", DirectURL: u})
 		}
-		if s, ok := urls[0].(string); ok && s != "" {
-			res.Medias = append(res.Medias, model.Media{Kind: "image", DirectURL: s})
+		if lv := douyinLivePhotoURL(img); lv != "" {
+			res.Medias = append(res.Medias, model.Media{Kind: "video", DirectURL: lv})
 		}
 	}
 	if len(res.Medias) == 0 {
 		return nil, fmt.Errorf("未找到可下载的媒体地址")
 	}
 	return res, nil
+}
+
+// douyinLivePhotoURL 提取单张实况照片的动态视频地址（images[i].video.play_addr）。
+// 注意：只看单张图片内的 video，图集顶层的 video.play_addr 是 BGM 配乐，不得混用。
+func douyinLivePhotoURL(img any) string {
+	v, _ := httpx.J(img, "video").(map[string]any)
+	if v == nil {
+		return ""
+	}
+	if urls := dyCollectPlayURLs(dyPick(v, "play_addr", "playAddr")); len(urls) > 0 {
+		return douyinCleanPlayURL(urls[0])
+	}
+	return ""
+}
+
+func douyinCleanPlayURL(s string) string {
+	return strings.Replace(s, "playwm", "play", 1)
+}
+
+// dyPick 按多个候选键依次取值（兼容 snake_case 与 camelCase），返回首个非 nil 值。
+func dyPick(v any, keys ...string) any {
+	m, _ := v.(map[string]any)
+	if m == nil {
+		return nil
+	}
+	for _, k := range keys {
+		if val, ok := m[k]; ok && val != nil {
+			return val
+		}
+	}
+	return nil
+}
+
+// dyStr 按多个候选键依次取字符串。
+func dyStr(v any, keys ...string) string {
+	if s, ok := dyPick(v, keys...).(string); ok {
+		return s
+	}
+	return ""
+}
+
+// dyArr 按多个候选键依次取数组。
+func dyArr(v any, keys ...string) []any {
+	if a, ok := dyPick(v, keys...).([]any); ok {
+		return a
+	}
+	return nil
+}
+
+// dyFirstURL 取多个候选键中首个非空数组的第一个 URL 字符串；
+// 也兼容键值直接为 URL 字符串的写法（如 cover 为字符串）。
+func dyFirstURL(v any, keys ...string) string {
+	if s, ok := v.(string); ok && strings.HasPrefix(s, "http") {
+		return s
+	}
+	m, _ := v.(map[string]any)
+	if m == nil {
+		return ""
+	}
+	for _, k := range keys {
+		switch t := m[k].(type) {
+		case []any:
+			for _, it := range t {
+				if s, ok := it.(string); ok && s != "" {
+					return s
+				}
+			}
+		case map[string]any:
+			// {url_list:[...]} / {urlList:[...]} 对象写法
+			for _, u := range dyArr(t, "url_list", "urlList") {
+				if s, ok := u.(string); ok && s != "" {
+					return s
+				}
+			}
+		case string:
+			if strings.HasPrefix(t, "http") {
+				return t
+			}
+		}
+	}
+	return ""
+}
+
+// dyCollectPlayURLs 收集播放地址的全部候选 URL，兼容 {url_list:[...]} 对象
+// 与 [{src|url}] 数组两种写法。
+func dyCollectPlayURLs(pa any) []string {
+	var out []string
+	switch t := pa.(type) {
+	case map[string]any:
+		for _, u := range dyArr(t, "url_list", "urlList") {
+			if s, ok := u.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+	case []any:
+		for _, it := range t {
+			if s := dyStr(it, "src", "url"); s != "" {
+				out = append(out, s)
+			}
+		}
+	}
+	return out
 }

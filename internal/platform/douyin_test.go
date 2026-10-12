@@ -142,3 +142,102 @@ func TestParseDouyinItemInfoAlbumSkipsBGM(t *testing.T) {
 		}
 	}
 }
+
+// 实况照片：images[i].video.play_addr 应被提取为紧随其图片的 video 媒体；
+// 顶层 video.play_addr（BGM）仍必须跳过。
+const douyinLivePhotoFixture = `{
+  "status_code": 0,
+  "item_list": [{
+    "aweme_id": "7382910471827363",
+    "desc": "实况测试",
+    "author": {"nickname": "实况作者"},
+    "video": {"play_addr": {"url_list": ["https://v.douyin.com/bgm/playwm/music.mp3"]}},
+    "images": [
+      {"url_list": ["https://p3-sign.douyinpic.com/live1.jpg"],
+       "video": {"play_addr": {"url_list": ["https://v.douyin.com/live/playwm/live1.mp4"]}}},
+      {"url_list": ["https://p3-sign.douyinpic.com/img2.jpg"]}
+    ]
+  }]
+}`
+
+func TestParseDouyinItemInfoLivePhoto(t *testing.T) {
+	res, err := parseDouyinItemInfo([]byte(douyinLivePhotoFixture), "douyin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Medias) != 3 {
+		t.Fatalf("期望 3 个媒体（2 图 + 1 实况视频），得到 %d: %+v", len(res.Medias), res.Medias)
+	}
+	if res.Medias[0].Kind != "image" || res.Medias[1].Kind != "video" || res.Medias[2].Kind != "image" {
+		t.Errorf("媒体顺序应为 image/video/image: %+v", res.Medias)
+	}
+	if strings.Contains(res.Medias[1].DirectURL, "playwm") {
+		t.Errorf("实况视频未去水印: %s", res.Medias[1].DirectURL)
+	}
+	for _, m := range res.Medias {
+		if strings.Contains(m.DirectURL, "music.mp3") {
+			t.Errorf("BGM 配乐混入结果: %s", m.DirectURL)
+		}
+	}
+}
+
+// camelCase（RSC/SSR 直出）字段应同样可解析。
+const douyinCamelFixture = `{
+  "status_code": 0,
+  "item_list": [{
+    "awemeId": "7382910471827364",
+    "desc": "驼峰标题",
+    "author": {"nickname": "驼峰作者"},
+    "video": {
+      "playAddr": {"urlList": ["https://v.douyin.com/x/playwm/v.mp4"]},
+      "originCover": {"urlList": ["https://p3-sign.douyinpic.com/oc.jpg"]}
+    }
+  }]
+}`
+
+func TestParseDouyinItemInfoCamelCase(t *testing.T) {
+	res, err := parseDouyinItemInfo([]byte(douyinCamelFixture), "douyin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Title != "驼峰标题" || res.Author != "驼峰作者" {
+		t.Errorf("标题/作者错误: %+v", res)
+	}
+	if res.CoverURL != "https://p3-sign.douyinpic.com/oc.jpg" {
+		t.Errorf("封面应取 originCover: %q", res.CoverURL)
+	}
+	if len(res.Medias) != 1 || res.Medias[0].Kind != "video" {
+		t.Fatalf("期望 1 个视频: %+v", res.Medias)
+	}
+	if strings.Contains(res.Medias[0].DirectURL, "playwm") {
+		t.Errorf("未去水印: %s", res.Medias[0].DirectURL)
+	}
+}
+
+func TestDouyinRSCItemNoData(t *testing.T) {
+	if _, err := douyinRSCItem([]byte(`<html>shell page</html>`)); err == nil {
+		t.Error("无 RSC 数据应报错")
+	}
+}
+
+func TestDouyinRSCItem(t *testing.T) {
+	chunk := `1:[\"$\",\"$1\",{\"aweme\":{\"detail\":{\"awemeId\":\"7382910471827365\",\"desc\":\"RSC标题\",\"author\":{\"nickname\":\"RSC作者\"},\"video\":{\"playAddr\":{\"urlList\":[\"https://v.douyin.com/x/playwm/r.mp4\"]},\"cover\":{\"urlList\":[\"https://p3-sign.douyinpic.com/r.jpg\"]}}}}}]`
+	html := `<html><body><script>self.__pace_f.push([1,"` + chunk + `"])</script></body></html>`
+	item, err := douyinRSCItem([]byte(html))
+	if err != nil {
+		t.Fatalf("RSC 提取失败: %v", err)
+	}
+	res, err := douyinItemToResult(item, "douyin")
+	if err != nil {
+		t.Fatalf("转 Result 失败: %v", err)
+	}
+	if res.Title != "RSC标题" || res.Author != "RSC作者" {
+		t.Errorf("标题/作者错误: %+v", res)
+	}
+	if len(res.Medias) != 1 || res.Medias[0].Kind != "video" {
+		t.Fatalf("期望 1 个视频: %+v", res.Medias)
+	}
+	if strings.Contains(res.Medias[0].DirectURL, "playwm") {
+		t.Errorf("未去水印: %s", res.Medias[0].DirectURL)
+	}
+}
