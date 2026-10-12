@@ -93,7 +93,7 @@ func (p Douyin) Parse(ctx context.Context, rawURL string) (*model.Result, error)
 	}
 	diag := fmt.Sprintf("页面长度=%d, 含_ROUTER_DATA=%v, 含webId=%v",
 		len(diagBody), strings.Contains(diagBody, "_ROUTER_DATA"), strings.Contains(diagBody, "webId"))
-	return nil, fmt.Errorf("抖音解析失败（%v；%s）；若当前网络持续失败，可尝试更换出口 IP", lastErr, diag)
+	return nil, fmt.Errorf("%v；%s；可尝试更换出口 IP", lastErr, diag)
 }
 
 // attachSharer 尽力解析分享链接背后的分享者身份并挂到结果上。

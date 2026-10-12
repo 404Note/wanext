@@ -65,7 +65,7 @@ func ParseText(ctx context.Context, text string) (*model.Result, error) {
 		}
 		res, err := p.Parse(ctx, u)
 		if err != nil {
-			lastErr = fmt.Errorf("%s 解析失败: %w", p.Label(), err)
+			lastErr = fmt.Errorf("%s：%w", p.Label(), err)
 			continue
 		}
 		return res, nil
