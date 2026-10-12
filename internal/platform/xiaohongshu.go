@@ -83,6 +83,10 @@ func (p Xiaohongshu) Parse(ctx context.Context, rawURL string) (*model.Result, e
 
 // parseXiaohongshuPage 解析笔记页 HTML（纯函数，便于单测）。
 func parseXiaohongshuPage(s, pageURL, platformName string) (*model.Result, error) {
+	// 链接失效（xsec_token 过期）或笔记已删除时，小红书直接返回 /404/ 页面
+	if strings.Contains(pageURL, "/404/") {
+		return nil, fmt.Errorf("笔记不存在或分享链接已失效，请重新分享获取新链接")
+	}
 	idx := strings.Index(s, xhsStateMarker)
 	if idx < 0 {
 		return nil, fmt.Errorf("页面未携带笔记数据（链接可能已过期，请重新分享）")
@@ -99,6 +103,12 @@ func parseXiaohongshuPage(s, pageURL, platformName string) (*model.Result, error
 	if err := json.Unmarshal([]byte(sanitizeXHSState(raw)), &data); err != nil {
 		return nil, fmt.Errorf("解析页面数据失败: %w", err)
 	}
+	// 404 页的 state 带有 notFoundPage 标记（finalURL 未必含 /404/ 时的兜底判断）
+	if m, ok := data.(map[string]any); ok {
+		if _, found := m["notFoundPage"]; found {
+			return nil, fmt.Errorf("笔记不存在或分享链接已失效，请重新分享获取新链接")
+		}
+	}
 	// 笔记数据有两种页面结构，优先新版：
 	//  - 新版分享页（discovery/item）：noteData.data.noteData
 	//  - 旧版 explore 页：note.noteDetailMap[<id>].note
@@ -112,7 +122,7 @@ func parseXiaohongshuPage(s, pageURL, platformName string) (*model.Result, error
 		}
 	}
 	if note == nil {
-		return nil, fmt.Errorf("页面数据中未找到笔记（分享链接的 xsec_token 可能已过期，请重新分享获取新链接）")
+		return nil, fmt.Errorf("页面数据中未找到笔记，请确认分享链接有效后重试")
 	}
 	title := httpx.S(note, "title")
 	desc := httpx.S(note, "desc")

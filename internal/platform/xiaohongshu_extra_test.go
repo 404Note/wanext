@@ -132,3 +132,19 @@ func TestParseXiaohongshuNoteDataFormat(t *testing.T) {
 		t.Errorf("图片应为原图直链: %+v", res.Medias)
 	}
 }
+
+func TestParseXiaohongshuNotFoundPage(t *testing.T) {
+	// 链接失效时小红书返回 /404/ 页面，state 含 notFoundPage 标记，应给出明确提示而非含糊报错
+	html404 := `<script>window.__INITIAL_STATE__={"global":{},"notFoundPage":{"noteType":"normal"},"noteData":{"data":{}}};</script>`
+
+	// 1. finalURL 含 /404/
+	_, err := parseXiaohongshuPage(html404, "https://www.xiaohongshu.com/404/sec_oDFFmpNO?source=xhs_sec_server", "xiaohongshu")
+	if err == nil || err.Error() != "笔记不存在或分享链接已失效，请重新分享获取新链接" {
+		t.Errorf("404 URL 应明确报错，得到: %v", err)
+	}
+	// 2. 仅 state 含 notFoundPage 标记（URL 未重定向时）
+	_, err = parseXiaohongshuPage(html404, "https://www.xiaohongshu.com/discovery/item/6aadd7d6000000002700abf6", "xiaohongshu")
+	if err == nil || err.Error() != "笔记不存在或分享链接已失效，请重新分享获取新链接" {
+		t.Errorf("notFoundPage 标记应明确报错，得到: %v", err)
+	}
+}
