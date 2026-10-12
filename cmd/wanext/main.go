@@ -1,0 +1,72 @@
+// wanext —— 多平台视频/图片无水印解析下载工具。
+//
+//	wanext serve [-addr 127.0.0.1:8080]   启动 Web 服务（含测试页面）
+//	wanext parse "<分享文案或链接>"        命令行解析并输出 JSON
+//	wanext version                        显示版本
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	"wanext/internal/extract"
+	"wanext/internal/server"
+)
+
+const version = "0.1.0"
+
+func main() {
+	if len(os.Args) < 2 {
+		usage()
+		os.Exit(2)
+	}
+	switch os.Args[1] {
+	case "serve":
+		fs := flag.NewFlagSet("serve", flag.ExitOnError)
+		addr := fs.String("addr", "127.0.0.1:8080", "监听地址")
+		_ = fs.Parse(os.Args[2:])
+		fmt.Printf("wanext v%s Web 服务已启动：http://%s\n", version, *addr)
+		fmt.Println("在浏览器打开上面的地址即可测试解析（Ctrl+C 退出）。")
+		if err := server.Serve(*addr); err != nil {
+			fmt.Fprintln(os.Stderr, "启动失败:", err)
+			os.Exit(1)
+		}
+	case "parse":
+		text := strings.Join(os.Args[2:], " ")
+		if strings.TrimSpace(text) == "" {
+			fmt.Fprintln(os.Stderr, "用法: wanext parse \"<分享文案或链接>\"")
+			os.Exit(2)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+		res, err := extract.ParseText(ctx, text)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "解析失败:", err)
+			os.Exit(1)
+		}
+		b, _ := json.MarshalIndent(res, "", "  ")
+		fmt.Println(string(b))
+	case "version":
+		fmt.Println("wanext", version)
+	default:
+		usage()
+		os.Exit(2)
+	}
+}
+
+func usage() {
+	fmt.Println(`wanext v` + version + ` —— 多平台视频/图片无水印解析下载
+
+用法:
+  wanext serve [-addr 127.0.0.1:8080]   启动 Web 服务，在浏览器中测试
+  wanext parse "<分享文案或链接>"         命令行解析，输出 JSON
+  wanext version                        显示版本
+
+环境变量:
+  HTTP_PROXY / HTTPS_PROXY              上游请求代理（如需）`)
+}

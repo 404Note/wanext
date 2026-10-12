@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>万能提取 · wanext</title>
+<style>
+:root { --bg:#0f1115; --card:#1a1e26; --line:#2a2f3a; --text:#e8eaf0; --muted:#9aa1b2; --accent:#4f8cff; --ok:#3ecf8e; --err:#ff6b6b;}
+* { box-sizing:border-box; margin:0; padding:0;}
+body { background:var(--bg); color:var(--text); font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; min-height:100vh;}
+.wrap { max-width:860px; margin:0 auto; padding:32px 20px 80px;}
+header { text-align:center; margin-bottom:28px;}
+header h1 { font-size:30px; letter-spacing:2px;}
+header h1 span { color:var(--accent);}
+header p { color:var(--muted); margin-top:8px; font-size:14px;}
+.platforms { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin:18px 0 26px;}
+.platforms span { background:var(--card); border:1px solid var(--line); border-radius:20px; padding:5px 14px; font-size:13px; color:var(--muted);}
+.box { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px;}
+textarea { width:100%; min-height:110px; background:#12151c; border:1px solid var(--line); border-radius:10px; color:var(--text); padding:14px; font-size:14px; line-height:1.6; resize:vertical; outline:none;}
+textarea:focus { border-color:var(--accent);}
+.row { display:flex; gap:12px; margin-top:14px; align-items:center;}
+button.parse { flex:1; background:var(--accent); color:#fff; border:none; border-radius:10px; padding:13px; font-size:16px; cursor:pointer; font-weight:600;}
+button.parse:hover { background:#3d7bf5;}
+button.parse:disabled { background:#2c3a55; cursor:wait;}
+.hint { color:var(--muted); font-size:12px; margin-top:10px; line-height:1.8;}
+#result { margin-top:24px; display:none;}
+.meta { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px 20px; margin-bottom:16px;}
+.badge { display:inline-block; background:#24314d; color:var(--accent); border-radius:6px; padding:3px 10px; font-size:12px; margin-bottom:8px;}
+.meta h2 { font-size:18px; margin-bottom:6px; line-height:1.5; word-break:break-all;}
+.meta.author { color:var(--muted); font-size:13px;}
+.meta.src { margin-top:10px; font-size:12px;}
+.meta.src a { color:var(--accent); text-decoration:none; word-break:break-all;}
+.media-item { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:14px;}
+.media-item.kind { font-size:12px; color:var(--muted); margin-bottom:10px;}
+.media-item video { width:100%; max-height:480px; border-radius:10px; background:#000;}
+.media-item img { width:100%; border-radius:10px; display:block;}
+.actions { display:flex; gap:10px; margin-top:12px;}
+.actions a,.actions button { flex:1; text-align:center; padding:10px; border-radius:8px; font-size:14px; cursor:pointer; text-decoration:none;}
+.dl { background:var(--ok); color:#06281a; border:none; font-weight:600;}
+.cp { background:#232936; color:var(--text); border:1px solid var(--line);}
+.err { background:#2a1a1e; border:1px solid #5a2b33; color:var(--err); border-radius:12px; padding:16px; margin-top:24px; display:none; line-height:1.6; font-size:14px;}
+.loading { text-align:center; color:var(--muted); margin-top:24px; display:none;}
+.json-toggle { margin-top:8px;}
+.json-toggle summary { cursor:pointer; color:var(--muted); font-size:13px;}
+.json-toggle pre { background:#12151c; border:1px solid var(--line); border-radius:8px; padding:12px; margin-top:8px; font-size:12px; overflow:auto; max-height:300px; white-space:pre-wrap; word-break:break-all;}
+.toast { position:fixed; bottom:30px; left:50%; transform:translateX(-50%); background:#232936; border:1px solid var(--line); padding:10px 22px; border-radius:20px; font-size:14px; display:none;}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<h1>万能提取 <span>wanext</span></h1>
+<p>粘贴分享链接或完整分享文案，一键解析无水印视频 / 原图</p>
+</header>
+<div class="platforms" id="platforms"></div>
+<div class="box">
+<textarea id="input" placeholder="例如：&#10;7.77 复制打开抖音，看看 https://v.douyin.com/xxxx/&#10;或直接粘贴任意平台的分享链接…"></textarea>
+<div class="row">
+<button class="parse" id="btn" onclick="doParse()">解 析</button>
+</div>
+<div class="hint">支持从整段分享文案中自动提取链接 · 下载走本机代理，媒体链接 15 分钟内有效 · 解析走平台公开接口，无需登录</div>
+</div>
+<div class="loading" id="loading">解析中，请稍候…</div>
+<div class="err" id="err"></div>
+<div id="result"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const PLATFORMS = [
+["douyin","抖音"],["kuaishou","快手"],["xiaohongshu","小红书"],["weibo","微博"],
+["bilibili","B站"],["tiktok","TikTok"],["x","X (Twitter)"],["instagram","Instagram"]
+];
+document.getElementById('platforms').innerHTML =
+PLATFORMS.map(p => `<span>${p[1]}</span>`).join('');
+
+const params = new URLSearchParams(location.search);
+if (params.get('url')) document.getElementById('input').value = params.get('url');
+
+function toast(msg) {
+const t = document.getElementById('toast');
+t.textContent = msg; t.style.display = 'block';
+setTimeout(() => t.style.display = 'none', 1800);
+}
+function showErr(msg) {
+const e = document.getElementById('err');
+e.textContent = '解析失败：' + msg; e.style.display = 'block';
+}
+function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+async function doParse() {
+const input = document.getElementById('input').value.trim();
+if (!input) { toast('请先粘贴分享链接'); return;}
+const btn = document.getElementById('btn');
+btn.disabled = true; btn.textContent = '解析中…';
+document.getElementById('loading').style.display = 'block';
+document.getElementById('err').style.display = 'none';
+document.getElementById('result').style.display = 'none';
+try {
+const r = await fetch('/api/parse', {
+method: 'POST',
+headers: {'Content-Type': 'application/json'},
+body: JSON.stringify({url: input})
+});
+const data = await r.json();
+if (!r.ok) { showErr(data.error || '未知错误'); return;}
+render(data);
+} catch (e) {
+showErr('网络错误：' + e.message);
+} finally {
+btn.disabled = false; btn.textContent = '解 析';
+document.getElementById('loading').style.display = 'none';
+}
+}
+
+function render(d) {
+const label = (PLATFORMS.find(p => p[0] === d.platform) || [d.platform, d.platform])[1];
+let html = `<div class="meta">
+<div class="badge">${esc(label)}</div>
+<h2>${esc(d.title)}</h2>
+<div class="author">${d.author? '作者：' + esc(d.author): ''}</div>
+${d.page_url? `<div class="src"><a href="${esc(d.page_url)}" target="_blank">查看原帖 ↗</a></div>`: ''}
+</div>`;
+d.medias.forEach((m, i) => {
+const tag = m.kind === 'video'? '视频': '图片';
+const preview = m.kind === 'video'
+? `<video controls preload="metadata" src="${esc(m.proxy_url)}"${m.cover_url? ` poster="${esc(m.cover_url)}"`: ''}></video>`
+: `<img loading="lazy" src="${esc(m.proxy_url)}" alt="图片${i+1}">`;
+html += `<div class="media-item">
+<div class="kind">${tag} ${i+1} / ${d.medias.length}</div>
+${preview}
+<div class="actions">
+<a class="dl" href="${esc(m.download_url)}" download>⬇ 下载${tag}</a>
+<button class="cp" onclick="copyLink('${esc(m.direct_url)}')">复制直链</button>
+</div>
+</div>`;
+});
+html += `<details class="json-toggle"><summary>查看原始 JSON</summary><pre>${esc(JSON.stringify(d, null, 2))}</pre></details>`;
+const box = document.getElementById('result');
+box.innerHTML = html; box.style.display = 'block';
+}
+
+function copyLink(u) {
+navigator.clipboard.writeText(u).then(() => toast('直链已复制'), () => toast('复制失败'));
+}
+document.getElementById('input').addEventListener('keydown', e => {
+if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') doParse();
+});
+</script>
+</body>
+</html>
