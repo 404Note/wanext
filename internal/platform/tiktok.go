@@ -24,12 +24,38 @@ func (TikTok) MatchHost(host string) bool {
 
 var (
 	tiktokIDRe          = regexp.MustCompile(`/(?:video|photo)/(\d{5,})`)
-	tiktokRehydrationRe = regexp.MustCompile(`(?s)<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">(.*?)</script>`)
+	tiktokRehydrationRe = regexp.MustCompile(`(?s)<script[^>]*id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)</script>`)
 )
 
-// errTiktokNoRehydration 表示页面未携带 __UNIVERSAL_DATA_FOR_REHYDRATION__。
+// tiktokNoDataError 表示页面未携带 __UNIVERSAL_DATA_FOR_REHYDRATION__。
 // TikTok 会间歇性返回降级页（无作品数据），重试通常可恢复，故该错误可重试。
-var errTiktokNoRehydration = errors.New("页面未携带作品数据（可能被反爬拦截）")
+// 携带页面诊断信息，便于从服务端日志判断降级页类型。
+type tiktokNoDataError struct {
+	pageLen int
+	hint    string
+}
+
+func (e *tiktokNoDataError) Error() string {
+	if e.hint != "" {
+		return fmt.Sprintf("页面未携带作品数据（可能被反爬拦截）：页面长度=%d，%s", e.pageLen, e.hint)
+	}
+	return fmt.Sprintf("页面未携带作品数据（可能被反爬拦截）：页面长度=%d", e.pageLen)
+}
+
+// tiktokPageHint 从降级页内容推测页面类型。
+func tiktokPageHint(s string) string {
+	ls := strings.ToLower(s)
+	switch {
+	case strings.Contains(ls, "captcha") || strings.Contains(ls, "verify-slider") || strings.Contains(ls, "challenge"):
+		return "疑似验证页"
+	case strings.Contains(ls, "login"):
+		return "疑似登录墙"
+	case len(s) < 1000:
+		return "页面过短"
+	default:
+		return ""
+	}
+}
 
 func (p TikTok) Parse(ctx context.Context, rawURL string) (*model.Result, error) {
 	// 用保持 cookie 的客户端：TikTok CDN 校验 playAddr 的 tk=tt_chain_token
@@ -49,7 +75,8 @@ func (p TikTok) Parse(ctx context.Context, rawURL string) (*model.Result, error)
 			return res, nil
 		}
 		lastErr = err
-		if !errors.Is(err, errTiktokNoRehydration) {
+		var noData *tiktokNoDataError
+		if !errors.As(err, &noData) {
 			return nil, err
 		}
 	}
@@ -64,7 +91,7 @@ func (p TikTok) parseOnce(ctx context.Context, cli *httpx.Client, rawURL string)
 	s := string(body)
 	raw := FirstSubmatch(tiktokRehydrationRe, s)
 	if raw == "" {
-		return nil, errTiktokNoRehydration
+		return nil, &tiktokNoDataError{pageLen: len(s), hint: tiktokPageHint(s)}
 	}
 	var data any
 	if err := json.Unmarshal([]byte(raw), &data); err != nil {
