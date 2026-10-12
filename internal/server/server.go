@@ -5,8 +5,10 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"path"
@@ -178,7 +180,8 @@ func New() http.Handler {
 		defer cancel()
 		res, err := extract.ParseText(ctx, req.URL)
 		if err != nil {
-			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+			logParseError(err)
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "解析失败！"})
 			return
 		}
 		out := apiResult{
@@ -292,6 +295,18 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// logParseError 把解析失败的详情打到服务端日志，页面只向用户展示"解析失败！"。
+// 日志格式：[douyin] v.douyin.com/xxx/ 具体原因（含排查信息）
+func logParseError(err error) {
+	var pe *extract.ParseError
+	if errors.As(err, &pe) {
+		u := strings.TrimPrefix(strings.TrimPrefix(pe.URL, "https://"), "http://")
+		log.Printf("[%s] %s %v", pe.Platform, u, pe.Err)
+		return
+	}
+	log.Printf("[parse] %v", err)
 }
 
 // Serve 在 addr 上启动服务。

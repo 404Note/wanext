@@ -94,7 +94,7 @@ setTimeout(() => t.style.display = 'none', 1800);
 }
 function showErr(msg) {
 const e = document.getElementById('err');
-e.textContent = '解析失败：' + msg; e.style.display = 'block';
+e.textContent = msg; e.style.display = 'block';
 }
 function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 

@@ -50,6 +50,18 @@ func Detect(rawURL string) platform.Parser {
 	return nil
 }
 
+// ParseError 解析失败的结构化错误：携带平台标识与失败链接，供服务端日志记录。
+// Error() 保持 "平台：原因" 的可读格式；用 errors.As 取出后可按字段打日志。
+type ParseError struct {
+	Platform string // 平台英文标识，如 douyin
+	Label    string // 平台中文名，如 抖音
+	URL      string // 解析失败的链接
+	Err      error  // 具体原因
+}
+
+func (e *ParseError) Error() string { return fmt.Sprintf("%s：%v", e.Label, e.Err) }
+func (e *ParseError) Unwrap() error { return e.Err }
+
 // ParseText 从文本中提取链接并依次尝试解析，返回第一个成功的结果。
 func ParseText(ctx context.Context, text string) (*model.Result, error) {
 	urls := ExtractURLs(text)
@@ -65,7 +77,7 @@ func ParseText(ctx context.Context, text string) (*model.Result, error) {
 		}
 		res, err := p.Parse(ctx, u)
 		if err != nil {
-			lastErr = fmt.Errorf("%s：%w", p.Label(), err)
+			lastErr = &ParseError{Platform: p.Name(), Label: p.Label(), URL: u, Err: err}
 			continue
 		}
 		return res, nil
