@@ -19,6 +19,16 @@ urls = ExtractURLs(`看这个：https://xhslink.com/a/b。`)
 if len(urls)!= 1 || urls[0]!= "https://xhslink.com/a/b" {
 t.Errorf("中文标点处理错误: %v", urls)
 }
+// 回归：URL 与中文无空格粘连时，只提取干净的 URL（抖音分享文案粘连曾导致解析失败）
+urls = ExtractURLs(`6.12 对感情我们say no#健身女孩日常 https://v.douyin.com/rsJoQknJn40/复制此链接，打开抖音搜索，直接观看视频！`)
+if len(urls)!= 1 || urls[0]!= "https://v.douyin.com/rsJoQknJn40/" {
+t.Errorf("粘连中文未截断: %v", urls)
+}
+// 全角波浪线等非 URL 字符同样截断
+urls = ExtractURLs(`看看https://v.douyin.com/rsJoQknJn40/～好东西`)
+if len(urls)!= 1 || urls[0]!= "https://v.douyin.com/rsJoQknJn40/" {
+t.Errorf("全角字符未截断: %v", urls)
+}
 // 去重
 urls = ExtractURLs(`https://v.douyin.com/x/ https://v.douyin.com/x/`)
 if len(urls)!= 1 {

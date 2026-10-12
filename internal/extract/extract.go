@@ -13,7 +13,10 @@ import (
 )
 
 // urlRe 匹配输入文本中的 http(s) 链接（兼容中文标点结尾）。
-var urlRe = regexp.MustCompile(`https?://[^\s"'<>()\[\]{}，。！？；：、]+`)
+// 链接提取：URL 字符白名单（RFC 3986 可见字符），中文/全角标点等自然截断。
+// 避免 "https://v.douyin.com/xxx/复制此链接" 这类无空格粘连把中文吞进 URL 导致解析失败。
+// 括号引号等不收录：处理 "(https://…)" "'https://…'" 这类被包裹粘贴的常见情况。
+var urlRe = regexp.MustCompile(`https?://[A-Za-z0-9_.~:/?#@!$&*+,;=%-]+`)
 
 // ExtractURLs 从任意文本（完整分享文案）中提取所有去重后的 URL。
 func ExtractURLs(text string) []string {
