@@ -82,3 +82,37 @@ func TestParseDouyinItemInfoError(t *testing.T) {
 		t.Error("空 item_list 应报错")
 	}
 }
+
+// 回归：图集的 video.play_addr 是 BGM 配乐（mp3），不得被误标为 kind=video
+func TestParseDouyinItemInfoAlbumSkipsBGM(t *testing.T) {
+	fixture := `{
+  "status_code": 0,
+  "item_list": [{
+    "aweme_id": "7695750443233985418",
+    "desc": "测试图集带BGM",
+    "author": {"nickname": "作者"},
+    "video": {
+      "play_addr": {"url_list": [
+        "https://aweme.snssdk.com/aweme/v1/play/?video_id=https://lf26-music-east.douyinstatic.com/obj/ies-music-hj/7690954378844343099.mp3&ratio=720p&line=0"
+      ]},
+      "cover": {"url_list": ["https://p3-sign.douyinpic.com/cover.webp"]}
+    },
+    "images": [
+      {"url_list": ["https://p26-sign.douyinpic.com/img1.webp"]},
+      {"url_list": ["https://p26-sign.douyinpic.com/img2.webp"]}
+    ]
+  }]
+}`
+	res, err := parseDouyinItemInfo([]byte(fixture), "douyin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Medias) != 2 {
+		t.Fatalf("期望 2 张图片（BGM 不应混入），得到 %d: %+v", len(res.Medias), res.Medias)
+	}
+	for _, m := range res.Medias {
+		if m.Kind != "image" {
+			t.Errorf("BGM 被误标为视频: %+v", m)
+		}
+	}
+}

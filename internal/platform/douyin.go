@@ -355,15 +355,20 @@ func douyinItemToResult(item any, platformName string) (*model.Result, error) {
 	}
 	video := httpx.J(item, "video")
 	res.CoverURL = httpx.S(video, "cover", "url_list", "0")
-	// 视频：playwm → play 即为无水印地址（水印由 App 客户端合成，CDN 文件本身干净）
-	for _, u := range httpx.Arr(video, "play_addr", "url_list") {
-		if s, ok := u.(string); ok && s != "" {
-			clean := strings.Replace(s, "playwm", "play", 1)
-			res.Medias = append(res.Medias, model.Media{Kind: "video", DirectURL: clean, CoverURL: res.CoverURL})
+	images := httpx.Arr(item, "images")
+	// 图集（images 非空）时 video.play_addr 是 BGM 配乐地址，不是正片视频，必须跳过；
+	// 否则配乐 mp3 会被误标为 kind=video 混入结果。
+	if len(images) == 0 {
+		// 视频：playwm → play 即为无水印地址（水印由 App 客户端合成，CDN 文件本身干净）
+		for _, u := range httpx.Arr(video, "play_addr", "url_list") {
+			if s, ok := u.(string); ok && s != "" {
+				clean := strings.Replace(s, "playwm", "play", 1)
+				res.Medias = append(res.Medias, model.Media{Kind: "video", DirectURL: clean, CoverURL: res.CoverURL})
+			}
 		}
 	}
 	// 图集
-	for _, img := range httpx.Arr(item, "images") {
+	for _, img := range images {
 		urls := httpx.Arr(img, "url_list")
 		if len(urls) == 0 {
 			continue
