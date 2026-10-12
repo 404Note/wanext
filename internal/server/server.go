@@ -57,6 +57,7 @@ type mediaEntry struct {
 	url      string
 	referer  string
 	ua       string
+	cookie   string
 	filename string
 	expires  time.Time
 	// plainTLS：为 true 时用标准 Go TLS（不做指纹伪装）。
@@ -195,6 +196,7 @@ func New() http.Handler {
 				url:      m.DirectURL,
 				referer:  platformReferer[res.Platform],
 				ua:       platformUA(res.Platform),
+				cookie:   m.Cookie,
 				filename: sanitizeFilename(res.Title, m.Kind),
 				expires:  time.Now().Add(mediaTTL),
 				plainTLS: res.Platform == "bilibili",
@@ -265,6 +267,9 @@ func proxyMedia(w http.ResponseWriter, r *http.Request, e *mediaEntry) {
 	req.Header.Set("User-Agent", e.ua)
 	if e.referer != "" {
 		req.Header.Set("Referer", e.referer)
+	}
+	if e.cookie != "" {
+		req.Header.Set("Cookie", e.cookie)
 	}
 	if rg := r.Header.Get("Range"); rg != "" {
 		req.Header.Set("Range", rg)

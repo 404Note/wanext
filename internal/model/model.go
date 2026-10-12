@@ -8,6 +8,9 @@ type Media struct {
 	CoverURL  string `json:"cover_url,omitempty"`
 	Width     int    `json:"width,omitempty"`
 	Height    int    `json:"height,omitempty"`
+	// Cookie 代理下载该媒体时需附带的 Cookie（如 TikTok playAddr 要求
+	// tt_chain_token Cookie 与 URL 中 tk 参数绑定）。不序列化到前端。
+	Cookie string `json:"-"`
 }
 
 // SharerInfo 抖音分享链接的分享者公开身份（由分享链接归因参数解析）。

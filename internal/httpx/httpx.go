@@ -332,6 +332,23 @@ func NewClientWithJar() *Client {
 	return &Client{NewClient()}
 }
 
+// CookieHeader 将 jar 中适用于 rawURL 的 cookie 拼成 Cookie 请求头值。
+// 用于 CDN 要求 Cookie 与 URL 签名参数绑定的场景（如 TikTok playAddr 的 tk=tt_chain_token）。
+func CookieHeader(jar http.CookieJar, rawURL string) string {
+	if jar == nil {
+		return ""
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	var parts []string
+	for _, c := range jar.Cookies(u) {
+		parts = append(parts, c.Name+"="+c.Value)
+	}
+	return strings.Join(parts, "; ")
+}
+
 // Resolve 不跟随跳转，返回跳转目标（绝对 URL）；非跳转响应返回自身 URL。
 func Resolve(ctx context.Context, rawURL string, headers map[string]string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)

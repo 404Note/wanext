@@ -26,7 +26,10 @@ var (
 )
 
 func (p TikTok) Parse(ctx context.Context, rawURL string) (*model.Result, error) {
-	finalURL, body, err := httpx.Get(ctx, rawURL, map[string]string{"User-Agent": httpx.DesktopUA})
+	// 用保持 cookie 的客户端：TikTok CDN 校验 playAddr 的 tk=tt_chain_token
+	// 与 Cookie 绑定，无 Cookie 下载会 403。
+	cli := httpx.NewClientWithJar()
+	finalURL, body, err := cli.Get(ctx, rawURL, map[string]string{"User-Agent": httpx.DesktopUA})
 	if err != nil {
 		return nil, fmt.Errorf("获取分享页失败: %w", err)
 	}
@@ -59,7 +62,12 @@ func (p TikTok) Parse(ctx context.Context, rawURL string) (*model.Result, error)
 			cover = httpx.UnquoteJSONString(httpx.S(video, "cover"))
 		}
 		res.CoverURL = cover
-		res.Medias = append(res.Medias, model.Media{Kind: "video", DirectURL: playAddr, CoverURL: cover})
+		res.Medias = append(res.Medias, model.Media{
+			Kind:      "video",
+			DirectURL: playAddr,
+			CoverURL:  cover,
+			Cookie:    httpx.CookieHeader(cli.Jar, playAddr),
+		})
 	}
 	// 图文帖
 	for _, img := range httpx.Arr(item, "imagePost", "images") {
