@@ -143,17 +143,19 @@ func parseXiaohongshuPage(s, pageURL, platformName string) (*model.Result, error
 		res.Medias = append(res.Medias, model.Media{Kind: "video", DirectURL: master, CoverURL: cover})
 		return res, nil
 	}
-	// 图文：原图在 sns-webpic.xhscdn.com
+	// 图文：取原图直链。infoList 里只有 !h5_1080jpg（1080px）与 !style_xxx（预览）两种
+	// 低清版本，原图需从地址中提取 token 拼 sns-img-bd.xhscdn.com 直链（实测 15MB+）。
 	for _, img := range httpx.Arr(note, "imageList") {
-		u := ""
-		infoList := httpx.Arr(img, "infoList")
-		if len(infoList) > 0 {
-			u = httpx.S(infoList[len(infoList)-1], "url")
+		src := httpx.S(img, "urlDefault")
+		if src == "" {
+			src = httpx.S(img, "url")
 		}
-		if u == "" {
-			u = httpx.S(img, "url")
+		if src == "" {
+			if infoList := httpx.Arr(img, "infoList"); len(infoList) > 0 {
+				src = httpx.S(infoList[len(infoList)-1], "url")
+			}
 		}
-		if u != "" {
+		if u := xhsOriginalImageURL(src); u != "" {
 			res.Medias = append(res.Medias, model.Media{Kind: "image", DirectURL: u})
 		}
 	}
@@ -162,6 +164,36 @@ func parseXiaohongshuPage(s, pageURL, platformName string) (*model.Result, error
 	}
 	res.CoverURL = res.Medias[0].DirectURL
 	return res, nil
+}
+
+// xhsOriginalImageURL 由图片地址提取 token，拼接原图直链。
+//
+// 小红书图片地址形如：
+// http://sns-webpic-qc.xhscdn.com/20261013/<hash>/notes_pre_post/<token>!h5_1080jpg
+// 其中 ! 后是图片处理样式（h5_1080jpg 仅 1080px，style_xxx 为预览图）。
+// 实测 https://sns-img-bd.xhscdn.com/notes_pre_post/<token> 返回原图
+// （同例 15.7MB vs !h5_1080jpg 的 160KB）。非标准结构时回退原地址。
+func xhsOriginalImageURL(src string) string {
+	if src == "" {
+		return ""
+	}
+	u := src
+	if i := strings.Index(u, "!"); i >= 0 {
+		u = u[:i] // 去掉 !style 图片处理参数
+	}
+	var p string
+	if pu, err := url.Parse(u); err == nil {
+		p = pu.Path
+	} else if i := strings.Index(u, "://"); i >= 0 {
+		if j := strings.Index(u[i+3:], "/"); j >= 0 {
+			p = u[i+3+j:]
+		}
+	}
+	parts := strings.Split(strings.Trim(p, "/"), "/")
+	if len(parts) >= 3 {
+		return "https://sns-img-bd.xhscdn.com/" + strings.Join(parts[2:], "/")
+	}
+	return src
 }
 
 // xhsOriginVideoURL 由 originVideoKey 构造直链：
@@ -208,17 +240,20 @@ func xhsStreamHeight(stream any) int64 {
 	return 0
 }
 
-// firstXHSImage 取笔记的第一张图（用作视频封面）。
+// firstXHSImage 取笔记的第一张图（用作视频封面），同样走原图直链。
 func firstXHSImage(note any) string {
 	imgs := httpx.Arr(note, "imageList")
 	if len(imgs) == 0 {
 		return ""
 	}
-	infoList := httpx.Arr(imgs[0], "infoList")
-	if len(infoList) > 0 {
-		if u := httpx.S(infoList[len(infoList)-1], "url"); u != "" {
-			return u
+	src := httpx.S(imgs[0], "urlDefault")
+	if src == "" {
+		src = httpx.S(imgs[0], "url")
+	}
+	if src == "" {
+		if infoList := httpx.Arr(imgs[0], "infoList"); len(infoList) > 0 {
+			src = httpx.S(infoList[len(infoList)-1], "url")
 		}
 	}
-	return httpx.S(imgs[0], "url")
+	return xhsOriginalImageURL(src)
 }

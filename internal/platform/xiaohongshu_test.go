@@ -33,7 +33,10 @@ func TestParseXiaohongshuImageNote(t *testing.T) {
 		`{"note":{"noteDetailMap":{"abc123":{"note":{` +
 		`"title":"测试笔记","desc":"描述文字","type":"normal",` +
 		`"user":{"nickname":"小红薯"},"imageList":[` +
-		`{"url":"https://sns-webpic.xhscdn.com/d.jpg","infoList":[{"url":"https://sns-webpic.xhscdn.com/a.jpg"},{"url":"https://sns-webpic.xhscdn.com/b.jpg"}]},` +
+		// 标准 CDN 结构 → 拼出原图直链
+		`{"url":"http://sns-webpic-qc.xhscdn.com/20261013/aaa/notes_pre_post/tok1!h5_1080jpg",` +
+		`"infoList":[{"url":"http://sns-webpic-qc.xhscdn.com/20261013/aaa/notes_pre_post/tok1!h5_1080jpg"},{"url":"http://sns-webpic-qc.xhscdn.com/20261013/bbb/notes_pre_post/tok1!style_x"}]},` +
+		// 非标准结构 → 回退原地址
 		`{"url":"https://sns-webpic.xhscdn.com/e.jpg","infoList":[]}` +
 		`]}}}}};` + `</script></html>`
 	res, err := parseXiaohongshuPage(html, "https://www.xiaohongshu.com/explore/abc123", "xiaohongshu")
@@ -46,12 +49,34 @@ func TestParseXiaohongshuImageNote(t *testing.T) {
 	if len(res.Medias) != 2 {
 		t.Fatalf("期望 2 张图，得到 %d", len(res.Medias))
 	}
-	// 应取 infoList 最后一张（最大尺寸）
-	if res.Medias[0].DirectURL != "https://sns-webpic.xhscdn.com/b.jpg" {
-		t.Errorf("图片地址选择错误: %s", res.Medias[0].DirectURL)
+	if want := "https://sns-img-bd.xhscdn.com/notes_pre_post/tok1"; res.Medias[0].DirectURL != want {
+		t.Errorf("应拼出原图直链，得到 %s，期望 %s", res.Medias[0].DirectURL, want)
 	}
 	if res.Medias[1].DirectURL != "https://sns-webpic.xhscdn.com/e.jpg" {
-		t.Errorf("无 infoList 时应回退 url: %s", res.Medias[1].DirectURL)
+		t.Errorf("非标准结构应回退原地址: %s", res.Medias[1].DirectURL)
+	}
+}
+
+func TestXhsOriginalImageURL(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{
+			"http://sns-webpic-qc.xhscdn.com/20261013/aaa/notes_pre_post/tok1!h5_1080jpg",
+			"https://sns-img-bd.xhscdn.com/notes_pre_post/tok1",
+		},
+		{
+			"http://sns-webpic-qc.xhscdn.com/20261013/bbb/notes_pre_post/tok1!style_d4c824bab532bfe9",
+			"https://sns-img-bd.xhscdn.com/notes_pre_post/tok1",
+		},
+		{
+			"https://sns-webpic.xhscdn.com/e.jpg",
+			"https://sns-webpic.xhscdn.com/e.jpg", // 非标准结构回退
+		},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := xhsOriginalImageURL(c.in); got != c.want {
+			t.Errorf("xhsOriginalImageURL(%q) = %q，期望 %q", c.in, got, c.want)
+		}
 	}
 }
 

@@ -115,8 +115,8 @@ func TestParseXiaohongshuNoteDataFormat(t *testing.T) {
 	html := `<script>window.__INITIAL_STATE__={"global":{},"noteData":{"data":{"noteData":{` +
 		`"noteId":"6aca565f000000001b01dc71","title":"新版笔记","desc":"描述",` +
 		`"type":"normal","user":{"userId":"u1","nickName":"新作者"},` +
-		`"imageList":[{"url":"https://sns-webpic.xhscdn.com/a.jpg",` +
-		`"infoList":[{"url":"https://sns-webpic.xhscdn.com/a_s.jpg"},{"url":"https://sns-webpic.xhscdn.com/a_l.jpg"}]}]` +
+		`"imageList":[{"url":"http://sns-webpic-qc.xhscdn.com/20261013/aaa/notes_pre_post/nt1!h5_1080jpg",` +
+		`"infoList":[{"url":"http://sns-webpic-qc.xhscdn.com/20261013/aaa/notes_pre_post/nt1!h5_1080jpg"},{"url":"http://sns-webpic-qc.xhscdn.com/20261013/bbb/notes_pre_post/nt1!style_x"}]}]` +
 		`}}}};</script>`
 	res, err := parseXiaohongshuPage(html, "https://www.xiaohongshu.com/discovery/item/6aca565f000000001b01dc71", "xiaohongshu")
 	if err != nil {
@@ -128,7 +128,7 @@ func TestParseXiaohongshuNoteDataFormat(t *testing.T) {
 	if res.Author != "新作者" {
 		t.Errorf("作者应取 user.nickName，得到 %q", res.Author)
 	}
-	if len(res.Medias) != 1 || res.Medias[0].DirectURL != "https://sns-webpic.xhscdn.com/a_l.jpg" {
-		t.Errorf("图片解析错误: %+v", res.Medias)
+	if len(res.Medias) != 1 || res.Medias[0].DirectURL != "https://sns-img-bd.xhscdn.com/notes_pre_post/nt1" {
+		t.Errorf("图片应为原图直链: %+v", res.Medias)
 	}
 }
