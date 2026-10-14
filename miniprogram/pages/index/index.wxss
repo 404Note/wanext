@@ -1,0 +1,149 @@
+.page {
+  padding: 32rpx;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+.header {
+  text-align: center;
+  margin: 16rpx 0 28rpx;
+}
+
+.title {
+  display: block;
+  font-size: 44rpx;
+  font-weight: 600;
+}
+
+.subtitle {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 26rpx;
+  color: #888;
+}
+
+.box {
+  background: #fff;
+  border-radius: 24rpx;
+  padding: 28rpx;
+}
+
+.input {
+  width: 100%;
+  min-height: 180rpx;
+  font-size: 30rpx;
+  line-height: 1.6;
+}
+
+.row {
+  display: flex;
+  gap: 20rpx;
+  margin-top: 20rpx;
+}
+
+.mini {
+  flex: 1;
+}
+
+.primary {
+  margin-top: 24rpx;
+  background: #4f8cff;
+  color: #fff;
+}
+
+.hint {
+  text-align: center;
+  color: #888;
+  margin-top: 28rpx;
+  font-size: 26rpx;
+}
+
+.error {
+  background: #fff2f2;
+  border-radius: 20rpx;
+  padding: 24rpx;
+  margin-top: 28rpx;
+  color: #d33;
+  font-size: 28rpx;
+}
+
+.result {
+  margin-top: 28rpx;
+  background: #fff;
+  border-radius: 24rpx;
+  padding: 28rpx;
+}
+
+.meta {
+  margin-bottom: 20rpx;
+}
+
+.result-title {
+  display: block;
+  font-size: 32rpx;
+  font-weight: 600;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.result-author {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 26rpx;
+  color: #888;
+}
+
+.carousel {
+  height: 720rpx;
+  background: #000;
+  border-radius: 16rpx;
+}
+
+.media {
+  width: 100%;
+  height: 100%;
+}
+
+.counter {
+  text-align: center;
+  color: #888;
+  font-size: 26rpx;
+  margin-top: 16rpx;
+}
+
+.actions {
+  display: flex;
+  gap: 20rpx;
+  margin-top: 20rpx;
+}
+
+.actions button {
+  flex: 1;
+}
+
+.actions .primary {
+  margin-top: 0;
+}
+
+.footer {
+  margin-top: 40rpx;
+  text-align: center;
+  font-size: 24rpx;
+  color: #999;
+  line-height: 1.8;
+}
+
+.footer text {
+  display: block;
+}
+
+.contact {
+  margin-top: 12rpx;
+  font-size: 26rpx;
+  color: #666;
+  background: transparent;
+}
+
+.contact::after {
+  border: none;
+}

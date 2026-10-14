@@ -1,0 +1,50 @@
+<view class="page">
+  <view class="header">
+    <text class="title">万能提取</text>
+    <text class="subtitle">粘贴内容，开始提取</text>
+  </view>
+
+  <view class="box">
+    <textarea class="input" value="{{inputText}}" placeholder="请输入或粘贴内容" bindinput="onInput" auto-height maxlength="2000" />
+    <view class="row">
+      <button class="mini" bindtap="onPaste">粘贴</button>
+      <button class="mini" bindtap="onClear">清空</button>
+    </view>
+    <button class="primary" bindtap="onExtract" disabled="{{status === 'loading'}}">{{status === 'loading' ? '提取中…' : '开始提取'}}</button>
+  </view>
+
+  <view wx:if="{{status === 'loading'}}" class="hint">提取中，请稍候…</view>
+
+  <view wx:if="{{status === 'error'}}" class="error">
+    <text>{{errorMsg}}</text>
+    <button class="mini" bindtap="onRetry">重试</button>
+  </view>
+
+  <view wx:if="{{status === 'success' && result}}" class="result">
+    <view class="meta">
+      <text class="result-title">{{result.title}}</text>
+      <text wx:if="{{result.author}}" class="result-author">{{result.author}}</text>
+    </view>
+
+    <swiper class="carousel" current="{{currentIndex}}" bindchange="onSwiperChange" indicator-dots>
+      <block wx:for="{{result.medias}}" wx:key="index">
+        <swiper-item>
+          <video wx:if="{{item.kind === 'video'}}" id="video-{{index}}" class="media" src="{{item.proxyUrl}}" poster="{{item.coverUrl}}" controls binderror="onMediaError" />
+          <image wx:else class="media" src="{{item.proxyUrl}}" mode="aspectFit" binderror="onMediaError" />
+        </swiper-item>
+      </block>
+    </swiper>
+    <view class="counter">第 {{currentIndex + 1}} / {{result.medias.length}}</view>
+
+    <view class="actions">
+      <button class="primary" bindtap="onSaveCurrent" disabled="{{saving}}">{{saving ? '保存中…' : '保存当前'}}</button>
+      <button bindtap="onCopy">复制</button>
+    </view>
+    <view wx:if="{{saving}}" class="hint">保存中…{{saveProgress}}%</view>
+  </view>
+
+  <view class="footer">
+    <text>内容归原作者所有 · 请仅保存你有权限保存的内容</text>
+    <button class="contact" open-type="contact">联系客服</button>
+  </view>
+</view>
