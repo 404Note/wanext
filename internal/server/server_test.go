@@ -34,8 +34,7 @@ func TestSanitizeFilename(t *testing.T) {
 	}
 }
 
-func TestParseHandlerValidation(t *testing.T) {
-	h := New()
+func TestParseHandlerValidation(t *testing.T) {	h := New()
 	// 空 body
 	req := httptest.NewRequest(http.MethodPost, "/api/parse", strings.NewReader(`{}`))
 	w := httptest.NewRecorder()
@@ -70,5 +69,64 @@ func TestParseHandlerValidation(t *testing.T) {
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "douyin") {
 		t.Errorf("平台列表异常: %d", w.Code)
+	}
+	// 已移除的平台不应出现在列表中
+	if strings.Contains(w.Body.String(), "instagram") || strings.Contains(w.Body.String(), `"x"`) {
+		t.Errorf("平台列表不应含已移除的 X / Instagram: %s", w.Body.String())
+	}
+}
+
+func TestHealth(t *testing.T) {
+	h := New()
+	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"ok":true`) {
+		t.Errorf("健康检查异常: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestNormalizeBaseURL(t *testing.T) {
+	if got, _ := normalizeBaseURL(""); got != "" {
+		t.Errorf("空应返回空，得到 %s", got)
+	}
+	if got, _ := normalizeBaseURL("https://api.example.com/"); got != "https://api.example.com" {
+		t.Errorf("应去尾斜杠，得到 %s", got)
+	}
+	if _, err := normalizeBaseURL("http://api.example.com"); err == nil {
+		t.Error("非 https 的公网地址应拒绝")
+	}
+	if got, err := normalizeBaseURL("http://127.0.0.1:8080"); err != nil || got != "http://127.0.0.1:8080" {
+		t.Errorf("本地开发 http 应放行: %v %s", err, got)
+	}
+	if got := buildProxyURL("https://api.example.com", "abc"); got != "https://api.example.com/api/media/abc" {
+		t.Errorf("绝对地址拼接错误: %s", got)
+	}
+	if got := buildProxyURL("", "abc"); got != "/api/media/abc" {
+		t.Errorf("未配置时应保持相对路径: %s", got)
+	}
+	if err := ServeWithConfig("127.0.0.1:0", Config{BaseURL: "http://api.example.com"}); err == nil {
+		t.Error("非法 BaseURL 启动应返回错误")
+	}
+}
+
+func TestRateLimiter(t *testing.T) {
+	l := newRateLimiter(2, 3)
+	if !l.allow("1.1.1.1") || !l.allow("1.1.1.1") {
+		t.Error("限额内应放行")
+	}
+	if l.allow("1.1.1.1") {
+		t.Error("超分钟限额应拒绝")
+	}
+	if !l.allow("2.2.2.2") {
+		t.Error("不同 IP 不应互相影响")
+	}
+	if got := clientIP(httptest.NewRequest(http.MethodGet, "/", nil)); got == "" {
+		t.Error("clientIP 不应为空")
+	}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-Forwarded-For", "203.0.113.9, 10.0.0.1")
+	if got := clientIP(req); got != "203.0.113.9" {
+		t.Errorf("应取 XFF 首个 IP，得到 %s", got)
 	}
 }

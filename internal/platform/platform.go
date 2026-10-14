@@ -18,6 +18,7 @@ type Parser interface {
 }
 
 // All 返回所有已注册的解析器。
+// wx-mp 分支：仅保留大陆受众常用的解析器，已移除 X / Instagram。
 func All() []Parser {
 	return []Parser{
 		Douyin{},
@@ -25,8 +26,6 @@ func All() []Parser {
 		Xiaohongshu{},
 		Weibo{},
 		Bilibili{},
-		XTwitter{},
-		Instagram{},
 	}
 }
 

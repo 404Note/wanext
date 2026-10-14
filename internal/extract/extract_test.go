@@ -50,10 +50,6 @@ cases:= map[string]string{
 "https://weibo.com/1234567890/AbCdEfGh": "weibo",
 "https://www.bilibili.com/video/BV1xx411c7mD": "bilibili",
 "https://b23.tv/abc123": "bilibili",
-"https://x.com/user/status/1234567890123456789": "x",
-"https://twitter.com/user/status/1234567890": "x",
-"https://www.instagram.com/reel/AbCdEfGhIjK/": "instagram",
-"https://www.instagram.com/p/AbCdEfGhIjK/": "instagram",
 }
 for u, want:= range cases {
 p:= Detect(u)
@@ -67,5 +63,14 @@ t.Errorf("%s: 期望 %s，得到 %s", u, want, p.Name())
 }
 if p:= Detect("https://example.com/foo"); p!= nil {
 t.Errorf("未知平台应返回 nil，得到 %s", p.Name())
+}
+// wx-mp 分支：X / Instagram 已移除，不再识别
+for _, u := range []string{
+"https://x.com/user/status/1234567890123456789",
+"https://www.instagram.com/p/AbCdEfGhIjK/",
+} {
+if p:= Detect(u); p != nil {
+t.Errorf("%s: 已移除的平台应返回 nil，得到 %s", u, p.Name())
+}
 }
 }

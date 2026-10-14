@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"regexp"
 	"strings"
@@ -26,30 +28,129 @@ import (
 //go:embed web
 var webFS embed.FS
 
+// serverVersion 与 cmd/wanext/main.go 的 version 保持同步，供 /api/health 返回。
+const serverVersion = "0.1.0"
+
 // 媒体链接有效期（与 video-parser 对齐：15 分钟）。
 const mediaTTL = 15 * time.Minute
 
+// 解析接口限流默认值：每 IP 每分钟 20 次、每天 300 次。
+const (
+	parseMinuteLimit = 20
+	parseDayLimit    = 300
+)
+
 // 各平台下载时的 Referer（部分 CDN 校验）。
+// wx-mp 分支：仅保留大陆受众常用平台，已移除 X / Instagram。
 var platformReferer = map[string]string{
 	"douyin":      "https://www.douyin.com/",
 	"kuaishou":    "https://www.kuaishou.com/",
 	"xiaohongshu": "https://www.xiaohongshu.com/",
 	"weibo":       "https://weibo.com/",
 	"bilibili":    "https://www.bilibili.com/",
-	"x":           "https://x.com/",
-	"instagram":   "https://www.instagram.com/",
 }
 
-// Instagram CDN 对 UA 指纹敏感，用极简 UA；
+// platformUA 返回媒体代理下载时的 UA。
 // B 站：API 接口（api.bilibili.com）在机房 IP 下用浏览器 UA 会被 412 拦截，用中性 UA；
 // 但 CDN（*.bilivideo.com）反过来：curl 类 UA 直接 403，必须用浏览器 UA。
+// （plainTLS 特例见 mediaEntry，B 站 CDN 必须用标准 TLS + 浏览器 UA。）
 func platformUA(platformName string) string {
-	switch platformName {
-	case "instagram":
-		return httpx.MinimalUA
-	default:
-		return httpx.DesktopUA
+	_ = platformName
+	return httpx.DesktopUA
+}
+
+// Config 是 HTTP 服务的配置。
+type Config struct {
+	// BaseURL 对外绝对地址前缀，如 https://api.example.com。
+	// 为空时 proxy_url / download_url 保持相对路径（Web 页同源可用）。
+	// 环境变量 BASE_URL 优先于 serve 的 -base-url 参数。
+	BaseURL string
+}
+
+// normalizeBaseURL 清洗并校验 BaseURL：去尾斜杠；非空时必须 https:// 开头，
+// 本地开发允许 http://127.0.0.1 / http://localhost。
+// 不根据请求 Host 头自动拼接：Host 可伪造，且经反向代理时易拼出内网地址。
+func normalizeBaseURL(s string) (string, error) {
+	s = strings.TrimSuffix(strings.TrimSpace(s), "/")
+	if s == "" {
+		return "", nil
 	}
+	if strings.HasPrefix(s, "https://") ||
+		strings.HasPrefix(s, "http://127.0.0.1") ||
+		strings.HasPrefix(s, "http://localhost") {
+		return s, nil
+	}
+	return "", fmt.Errorf("BASE_URL 必须以 https:// 开头（本地开发可用 http://127.0.0.1 或 http://localhost）")
+}
+
+// buildProxyURL 拼接媒体代理地址：配置了 BaseURL 返回绝对地址，否则相对路径。
+func buildProxyURL(baseURL, token string) string {
+	if baseURL == "" {
+		return "/api/media/" + token
+	}
+	return baseURL + "/api/media/" + token
+}
+
+// clientIP 取客户端 IP：反向代理部署时信任 X-Forwarded-For 首个 IP，
+// 否则用 X-Real-IP，最后回退 RemoteAddr。仅用于限流计数，不做鉴权依据。
+func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if ip := strings.TrimSpace(strings.Split(xff, ",")[0]); ip != "" {
+			return ip
+		}
+	}
+	if rip := strings.TrimSpace(r.Header.Get("X-Real-IP")); rip != "" {
+		return rip
+	}
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
+}
+
+type ipCount struct {
+	minuteStart time.Time
+	minuteN     int
+	dayStart    time.Time
+	dayN        int
+}
+
+// rateLimiter 是固定窗口 IP 限流器（内存实现，进程重启清零）。
+type rateLimiter struct {
+	mu          sync.Mutex
+	counts      map[string]*ipCount
+	minuteLimit int
+	dayLimit    int
+}
+
+func newRateLimiter(minuteLimit, dayLimit int) *rateLimiter {
+	return &rateLimiter{counts: map[string]*ipCount{}, minuteLimit: minuteLimit, dayLimit: dayLimit}
+}
+
+// allow 计数并判断是否放行：超限返回 false，不计数。
+func (l *rateLimiter) allow(ip string) bool {
+	now := time.Now()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	c, ok := l.counts[ip]
+	if !ok {
+		c = &ipCount{minuteStart: now, dayStart: now}
+		l.counts[ip] = c
+	}
+	if now.Sub(c.minuteStart) >= time.Minute {
+		c.minuteStart = now
+		c.minuteN = 0
+	}
+	if now.Sub(c.dayStart) >= 24*time.Hour {
+		c.dayStart = now
+		c.dayN = 0
+	}
+	if c.minuteN >= l.minuteLimit || c.dayN >= l.dayLimit {
+		return false
+	}
+	c.minuteN++
+	c.dayN++
+	return true
 }
 
 type mediaEntry struct {
@@ -143,9 +244,17 @@ func sanitizeFilename(title, kind string) string {
 	return t + ext
 }
 
-// New 返回配置好的 http.Handler。
+// New 返回配置好的 http.Handler（BaseURL 取环境变量 BASE_URL）。
 func New() http.Handler {
+	return NewWithConfig(Config{BaseURL: os.Getenv("BASE_URL")})
+}
+
+// NewWithConfig 返回配置好的 http.Handler。BaseURL 非法时按空处理，
+// 启动期校验由 ServeWithConfig 负责返回错误。
+func NewWithConfig(cfg Config) http.Handler {
+	baseURL, _ := normalizeBaseURL(cfg.BaseURL)
 	reg := NewRegistry()
+	limiter := newRateLimiter(parseMinuteLimit, parseDayLimit)
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
@@ -162,11 +271,19 @@ func New() http.Handler {
 		w.Write(b)
 	})
 
+	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "version": serverVersion})
+	})
+
 	mux.HandleFunc("GET /api/platforms", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"platforms": extract.SupportedPlatforms()})
 	})
 
 	mux.HandleFunc("POST /api/parse", func(w http.ResponseWriter, r *http.Request) {
+		if !limiter.allow(clientIP(r)) {
+			writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "操作太频繁，请稍后再试"})
+			return
+		}
 		var req struct {
 			URL string `json:"url"`
 		}
@@ -200,7 +317,7 @@ func New() http.Handler {
 				expires:  time.Now().Add(mediaTTL),
 				plainTLS: res.Platform == "bilibili",
 			})
-			proxy := "/api/media/" + token
+			proxy := buildProxyURL(baseURL, token)
 			out.Medias = append(out.Medias, apiMedia{
 				Media:       m,
 				ProxyURL:    proxy,
@@ -223,6 +340,10 @@ func New() http.Handler {
 	// 抖音分享者身份解析：从分享文案/短链还原「这条链接是谁分享的」
 	//（分享者归因参数解析，思路参考 hiFOFA/douyin-share-resolver）。
 	mux.HandleFunc("POST /api/douyin/sharer", func(w http.ResponseWriter, r *http.Request) {
+		if !limiter.allow(clientIP(r)) {
+			writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "操作太频繁，请稍后再试"})
+			return
+		}
 		var req struct {
 			URL string `json:"url"`
 		}
@@ -319,11 +440,19 @@ func logParseError(err error) {
 	log.Printf("[parse] %v", err)
 }
 
-// Serve 在 addr 上启动服务。
+// Serve 在 addr 上启动服务（BaseURL 取环境变量 BASE_URL）。
 func Serve(addr string) error {
+	return ServeWithConfig(addr, Config{BaseURL: os.Getenv("BASE_URL")})
+}
+
+// ServeWithConfig 在 addr 上启动服务，先校验 BaseURL，非法时直接返回错误。
+func ServeWithConfig(addr string, cfg Config) error {
+	if _, err := normalizeBaseURL(cfg.BaseURL); err != nil {
+		return err
+	}
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           New(),
+		Handler:           NewWithConfig(cfg),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	return srv.ListenAndServe()

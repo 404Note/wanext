@@ -31,10 +31,15 @@ func main() {
 	case "serve":
 		fs := flag.NewFlagSet("serve", flag.ExitOnError)
 		addr := fs.String("addr", "127.0.0.1:8080", "监听地址")
+		baseURL := fs.String("base-url", "", "对外绝对地址前缀，如 https://api.example.com（环境变量 BASE_URL 优先）")
 		_ = fs.Parse(os.Args[2:])
+		cfg := server.Config{BaseURL: *baseURL}
+		if v := os.Getenv("BASE_URL"); v != "" {
+			cfg.BaseURL = v
+		}
 		fmt.Printf("wanext v%s Web 服务已启动：http://%s\n", version, *addr)
 		fmt.Println("在浏览器打开上面的地址即可测试解析（Ctrl+C 退出）。")
-		if err := server.Serve(*addr); err != nil {
+		if err := server.ServeWithConfig(*addr, cfg); err != nil {
 			fmt.Fprintln(os.Stderr, "启动失败:", err)
 			os.Exit(1)
 		}
@@ -92,11 +97,12 @@ func usage() {
 	fmt.Println(`wanext v` + version + ` —— 多平台视频/图片无水印解析下载
 
 用法:
-  wanext serve [-addr 127.0.0.1:8080]   启动 Web 服务，在浏览器中测试
+  wanext serve [-addr 127.0.0.1:8080] [-base-url https://api.example.com]   启动 Web 服务，在浏览器中测试
   wanext parse "<分享文案或链接>"         命令行解析，输出 JSON
   wanext sharer "<抖音分享文案或短链>"    解析分享者身份（这条链接是谁分享的）
   wanext version                        显示版本
 
 环境变量:
+  BASE_URL                              对外绝对地址前缀（小程序用，优先于 -base-url）
   HTTP_PROXY / HTTPS_PROXY              上游请求代理（如需）`)
 }
