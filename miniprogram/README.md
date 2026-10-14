@@ -4,9 +4,10 @@
 
 ## 配置
 
-1. `miniprogram/config.js` 的 `baseURL` 改成你的备案域名（如 `https://api.example.com`）。本地开发可用 `http://127.0.0.1:8080`，开发者工具需勾选“不校验合法域名”。
+1. 复制 `miniprogram/config.local.example.js` 为 `miniprogram/config.local.js` 后填入真实域名（如 `https://api.example.com`）。不要改 `config.js`（占位回退）。本地开发可用 `http://127.0.0.1:8080`，开发者工具需勾选“不校验合法域名”。
 2. `miniprogram/project.config.json` 的 `appid` 改成真实 AppID（当前为 `touristappid` 占位，仅供本地开发）。
 3. 小程序后台：同一备案域名同时配进 request 合法域名与 downloadFile 合法域名两栏；隐私指引按实际调用填写（粘贴板：用户主动点击才读；相册写入：保存时授权）。
+4. 克隆后运行仓库根目录的 `scripts/setup-hooks.sh` 启用防提交钩子；真实配置与密钥绝不提交（见仓库 README 的配置与密钥一节）。
 
 ## 后端
 
@@ -17,6 +18,8 @@
 # 公网（反向代理终止 TLS，转发到回环地址）
 BASE_URL=https://api.example.com ./wanext serve -addr 127.0.0.1:8080
 ```
+
+或复制根目录 `.env.example` 为 `.env` 后填入，启动时自动加载（进程环境变量优先于 `.env`）。
 
 - `BASE_URL` 未配置时，`proxy_url` / `download_url` 保持相对路径，Web 页不受影响。
 - `GET /api/health` 返回 `{"ok":true,"version":"0.1.0"}`，供启动探测与部署探活。

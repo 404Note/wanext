@@ -92,6 +92,8 @@ go build -o wanext ./cmd/wanext
 - 小程序代码在 `miniprogram/`（原生，见 `miniprogram/README.md`）。
 - 后端新增：`BASE_URL`（环境变量优先于 `-base-url`，未配置时保持相对路径）、`GET /api/health`、解析接口 IP 限流（每分钟 20 次、每天 300 次）。
 - 本分支已移除 X / Instagram 支持；小程序端不展示平台名，交互围绕「万能提取」展开。
+- 配置与密钥：真实值只放未追踪的本地文件（后端 `.env`，前端 `miniprogram/config.local.js`），模板为 `.env.example` / `config.local.example.js`（占位可提交）；进程环境变量优先于 `.env`。
+- 防提交：克隆后运行 `scripts/setup-hooks.sh` 启用 pre-commit 钩子，拦截 `.env` / 密钥文件 / 密钥赋值进提交；绝不提交 Secret 等敏感信息。
 
 ## 注意事项
 

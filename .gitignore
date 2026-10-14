@@ -1,11 +1,27 @@
-# 构建产物
-wanext
-wanext.exe
+# 构建产物（仅仓库根目录的二进制，前面的 / 很重要：
+# 写成 wanext 会误忽略 cmd/wanext/ 目录下的新文件）
+/wanext
+/wanext.exe
 dist/
 
 # 日志与临时文件
 *.log
 /tmp/
+
+# 本地真实配置与密钥（绝不提交）
+# 后端真实值只放 .env（未追踪）；前端真实值只放 miniprogram/config.local.js（未追踪）
+# .env.example / config.local.example.js 为占位模板，可以提交
+.env
+.env.local
+.env.*.local
+miniprogram/config.local.js
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+*.secret
+secrets/
 
 # 小程序私有配置与密钥（微信开发者工具生成，绝不提交）
 miniprogram/project.private.config.json

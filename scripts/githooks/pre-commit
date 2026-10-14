@@ -1,0 +1,41 @@
+#!/bin/sh
+# wanext pre-commit：拦截敏感信息提交。
+# 规则：真实密钥只放未追踪的本地文件（.env / config.local.js），绝不进提交。
+# 本钩子只检查暂存区的新增行，不扫历史存量。
+# 确认误报且无敏感信息时，可用 git commit --no-verify 跳过。
+
+# 1. 禁止文件名：即使 git add -f 也拦截。
+FORBIDDEN='(^|/)\.env$|(^|/)\.env\.local$|(^|/)\.env\..*\.local$|(^|/)config\.local\.js$|\.pem$|\.key$|\.p12$|\.jks$|\.keystore$|\.secret$|(^|/)secrets/|project\.private\.config\.json$'
+
+blocked=0
+for f in $(git diff --cached --name-only --diff-filter=ACMR); do
+  if printf '%s' "$f" | grep -Eq "$FORBIDDEN"; then
+    echo "pre-commit: 拦截禁止提交的文件：$f"
+    echo "  真实配置/密钥请放未追踪的本地文件（.env / config.local.js），不要提交。"
+    blocked=1
+  fi
+done
+
+# 2. 扫描暂存区新增行中的敏感信息。
+added=$(git diff --cached -U0 --no-color | grep '^+' | grep -v '^+++')
+if [ -n "$added" ]; then
+  # 私钥头：任何出现即拦截。
+  if printf '%s' "$added" | grep -Eq 'BEGIN [A-Z ]*PRIVATE KEY'; then
+    echo "pre-commit: 拦截私钥内容（-----BEGIN ... PRIVATE KEY-----），请勿提交。"
+    blocked=1
+  fi
+  # 密钥赋值：WX_SECRET / APP_SECRET / API_SECRET / CLIENT_SECRET / SECRET / PASSWORD / API_KEY 等
+  # 占位值（your- / example / placeholder / xxx / test / dummy / fake / sample / abc123 / *** 等）放行。
+  secrets=$(printf '%s' "$added" | grep -E "(WX_SECRET|APP_SECRET|APPSECRET|API_SECRET|CLIENT_SECRET|SECRET|PASSWORD|PASSWD|API_KEY|APIKEY|ACCESS_TOKEN|PRIVATE_KEY)[[:space:]]*[:=][[:space:]]*[\"']?[A-Za-z0-9_./+-]{8,}" | grep -viE 'your-|example|placeholder|xxx|change-?me|todo|test|dummy|fake|sample|abc123|123456|\*\*\*')
+  if [ -n "$secrets" ]; then
+    echo "pre-commit: 拦截疑似密钥赋值，请改放 .env / config.local.js（未追踪）："
+    printf '%s\n' "$secrets" | head -n 10
+    blocked=1
+  fi
+fi
+
+if [ "$blocked" -ne 0 ]; then
+  echo "pre-commit: 提交已拦截。确认无敏感信息且为误报时，可用 git commit --no-verify 跳过。"
+  exit 1
+fi
+exit 0

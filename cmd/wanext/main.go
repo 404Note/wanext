@@ -23,6 +23,7 @@ import (
 const version = "0.1.0"
 
 func main() {
+	loadDotEnv(".env")
 	if len(os.Args) < 2 {
 		usage()
 		os.Exit(2)
