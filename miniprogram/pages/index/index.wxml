@@ -1,6 +1,6 @@
 <view class="page">
   <view class="header">
-    <text class="title">万能提取</text>
+    <text class="title">任意取</text>
     <text class="subtitle">粘贴内容，开始提取</text>
   </view>
 
