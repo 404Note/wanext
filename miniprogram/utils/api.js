@@ -1,5 +1,14 @@
 const config = require('../config.js');
 
+// 拼接相对地址：后端未配置 BASE_URL 时 proxy_url 是相对路径（Web 页同源可用），
+// 小程序内必须拼成绝对地址才能加载。
+function resolveURL(u) {
+  if (!u) return '';
+  if (/^https?:\/\//i.test(u)) return u;
+  if (u.charAt(0) === '/') return config.baseURL.replace(/\/+$/, '') + u;
+  return u;
+}
+
 // 统一请求封装：baseURL 一处配置，超时 100 秒（对齐服务端 90 秒上限并留余量）。
 function request(path, method, data) {
   return new Promise((resolve, reject) => {
@@ -44,9 +53,9 @@ function extractContent(inputText) {
       author: data.author || '',
       medias: medias.map((m) => ({
         kind: m.kind,
-        proxyUrl: m.proxy_url,
+        proxyUrl: resolveURL(m.proxy_url),
         directUrl: m.direct_url,
-        coverUrl: m.cover_url || '',
+        coverUrl: resolveURL(m.cover_url) || '',
         width: m.width || 0,
         height: m.height || 0,
       })),

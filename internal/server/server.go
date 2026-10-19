@@ -53,7 +53,8 @@ var platformReferer = map[string]string{
 // platformUA 返回媒体代理下载时的 UA。
 // B 站：API 接口（api.bilibili.com）在机房 IP 下用浏览器 UA 会被 412 拦截，用中性 UA；
 // 但 CDN（*.bilivideo.com）反过来：curl 类 UA 直接 403，必须用浏览器 UA。
-// （plainTLS 特例见 mediaEntry，B 站 CDN 必须用标准 TLS + 浏览器 UA。）
+// （plainTLS 特例见 mediaEntry：B 站、抖音 CDN 会拦截伪装 TLS 指纹，
+// 必须用标准 Go TLS + 浏览器 UA。）
 func platformUA(platformName string) string {
 	_ = platformName
 	return httpx.DesktopUA
@@ -315,7 +316,7 @@ func NewWithConfig(cfg Config) http.Handler {
 				cookie:   m.Cookie,
 				filename: sanitizeFilename(res.Title, m.Kind),
 				expires:  time.Now().Add(mediaTTL),
-				plainTLS: res.Platform == "bilibili",
+				plainTLS: res.Platform == "bilibili" || res.Platform == "douyin",
 			})
 			proxy := buildProxyURL(baseURL, token)
 			out.Medias = append(out.Medias, apiMedia{
