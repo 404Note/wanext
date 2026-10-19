@@ -93,6 +93,48 @@
   color: #888;
 }
 
+/* 代码块：标题等文案的突出展示，轻触复制 */
+.codeblock {
+  padding: 20rpx;
+  background: #f7f8fa;
+  border: 1rpx solid #e8e8e8;
+  border-radius: 16rpx;
+}
+
+.codeblock-text {
+  display: block;
+  font-family: monospace;
+  font-size: 28rpx;
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+.codeblock-hint {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: #aaa;
+}
+
+.mono {
+  font-family: monospace;
+}
+
+.sharer-id-row {
+  display: flex;
+  align-items: center;
+  margin-top: 6rpx;
+}
+
+.copy-badge {
+  margin-left: 12rpx;
+  padding: 4rpx 14rpx;
+  font-size: 22rpx;
+  color: #4f8cff;
+  border: 1rpx solid #4f8cff;
+  border-radius: 8rpx;
+}
+
 .sharer {
   margin-bottom: 20rpx;
   padding: 20rpx;

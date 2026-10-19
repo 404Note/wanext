@@ -22,13 +22,19 @@
 
   <view wx:if="{{status === 'success' && result}}" class="result">
     <view class="meta">
-      <text class="result-title">{{result.title}}</text>
+      <view class="codeblock" bindtap="onCopyText" data-text="{{result.title}}">
+        <text class="codeblock-text">{{result.title}}</text>
+        <text class="codeblock-hint">轻触复制标题</text>
+      </view>
       <text wx:if="{{result.author}}" class="result-author">{{result.author}}</text>
     </view>
 
     <view wx:if="{{result.sharer && result.sharer.nickname}}" class="sharer">
       <text class="sharer-name">分享者 {{result.sharer.nickname}}</text>
-      <text wx:if="{{result.sharer.accountId}}" class="sharer-id">账号 {{result.sharer.accountId}}</text>
+      <view wx:if="{{result.sharer.accountId}}" class="sharer-id-row" bindtap="onCopyText" data-text="{{result.sharer.accountId}}">
+        <text class="sharer-id">账号 <text class="mono">{{result.sharer.accountId}}</text></text>
+        <text class="copy-badge">复制</text>
+      </view>
       <text wx:if="{{result.sharer.shareTime}}" class="sharer-time">分享于 {{result.sharer.shareTime}}</text>
       <text wx:if="{{result.sharer.signature}}" class="sharer-sign">{{result.sharer.signature}}</text>
     </view>

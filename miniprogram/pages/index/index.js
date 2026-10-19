@@ -202,4 +202,15 @@ Page({
         wx.showToast({ title: '保存失败，请重试', icon: 'none' });
       });
   },
+
+  // 通用复制：标题代码块、分享者账号等轻触即复制
+  onCopyText(e) {
+    const text = ((e.currentTarget.dataset.text || '') + '').trim();
+    if (!text) return;
+    wx.setClipboardData({
+      data: text,
+      success: () => wx.showToast({ title: '已复制', icon: 'success' }),
+      fail: () => wx.showToast({ title: '复制失败', icon: 'none' }),
+    });
+  },
 });
