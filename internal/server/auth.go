@@ -224,6 +224,9 @@ type Authenticator struct {
 	bans         *BanStore
 	audit        Auditor
 	loginLimiter *rateLimiter
+	// adminSessionChecker 非空时：请求携带有效管理员会话则直接放行，
+	// 返回管理員身份标识（演示页走管理員会话调用业务接口用）。
+	adminSessionChecker func(r *http.Request) (string, bool)
 }
 
 // NewAuthenticator 构造鉴权器；secret 为 JWT 签名密钥。
@@ -259,6 +262,13 @@ func (a *Authenticator) RequireAuth(next http.Handler) http.Handler {
 		if !a.required {
 			next.ServeHTTP(w, r)
 			return
+		}
+		// 管理员会话直通：演示页在管理员登录后无需用户 JWT 即可调用。
+		if a.adminSessionChecker != nil {
+			if adminUID, ok := a.adminSessionChecker(r); ok {
+				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), uidCtxKey{}, adminUID)))
+				return
+			}
 		}
 		start := time.Now()
 		deny := func(reason string) {

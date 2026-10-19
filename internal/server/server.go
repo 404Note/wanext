@@ -88,8 +88,10 @@ type Config struct {
 
 	// AdminEnabled 管理页开关（环境变量 ADMIN_ENABLED=1）。
 	AdminEnabled bool
-	// AdminToken 管理员凭证，至少 32 字节，只进服务端 .env。
-	AdminToken string
+	// AdminUser / AdminPassword 管理员账号密码，只进服务端 .env。
+	// 密码至少 12 位，否则管理页保持关闭（失败关闭）。
+	AdminUser     string
+	AdminPassword string
 	// AdminDataDir 封禁名单与管理员操作记录的持久化目录，缺省 "data"。
 	AdminDataDir string
 }
@@ -362,7 +364,8 @@ func ConfigFromEnv() (Config, error) {
 	if cfg.AdminEnabled, err = parseAuthSwitch(os.Getenv("ADMIN_ENABLED")); err != nil {
 		return cfg, fmt.Errorf("ADMIN_ENABLED: %w", err)
 	}
-	cfg.AdminToken = os.Getenv("ADMIN_TOKEN")
+	cfg.AdminUser = os.Getenv("ADMIN_USER")
+	cfg.AdminPassword = os.Getenv("ADMIN_PASSWORD")
 	if d := os.Getenv("ADMIN_DATA_DIR"); d != "" {
 		cfg.AdminDataDir = d
 	}
@@ -406,7 +409,9 @@ func NewWithConfig(cfg Config) http.Handler {
 	bans.MergeEnvBans(cfg.BannedUIDs)
 
 	auth := NewAuthenticator(cfg.AuthRequired, []byte(cfg.JWTSecret), cfg.WXAppID, cfg.WXSecret, bans, audit)
-	admin := NewAdminManager(cfg.AdminEnabled, cfg.AdminToken, bans, audit, auth, limiter, reg)
+	admin := NewAdminManager(cfg.AdminEnabled, cfg.AdminUser, cfg.AdminPassword, bans, audit, auth, limiter, reg)
+	// 演示页走管理员会话调用业务接口：RequireAuth 优先认管理员会话。
+	auth.adminSessionChecker = admin.sessionUID
 
 	mux := http.NewServeMux()
 
@@ -415,18 +420,21 @@ func NewWithConfig(cfg Config) http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-		// A9：鉴权开启时生产环境关闭 Web 测试页。
+		if admin.enabled {
+			// 管理页启用时：首页默认是登录框，登录后进演示页。
+			if admin.sessionFromRequest(r) == nil {
+				serveWebFile(w, "web/login.html")
+				return
+			}
+			serveWebFile(w, "web/index.html")
+			return
+		}
+		// 管理页未启用：旧行为（A9：鉴权开启时生产环境关闭 Web 测试页）。
 		if cfg.AuthRequired {
 			http.NotFound(w, r)
 			return
 		}
-		b, err := webFS.ReadFile("web/index.html")
-		if err != nil {
-			http.Error(w, "页面缺失", http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write(b)
+		serveWebFile(w, "web/index.html")
 	})
 
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
@@ -453,6 +461,10 @@ func NewWithConfig(cfg Config) http.Handler {
 		return "ip:" + clientIP(r)
 	}
 	checkLimits := func(w http.ResponseWriter, r *http.Request, start time.Time, endpoint string) bool {
+		// 管理员演示不限流（审计照记；管理员会话本身已是最高权限）。
+		if UIDFromContext(r.Context()) == "admin" {
+			return true
+		}
 		ip := clientIP(r)
 		if !ipCoarse.allow(ip) {
 			audit.Record(AuditEvent{Endpoint: endpoint, UID: UIDFromContext(r.Context()), IP: ip,
@@ -619,6 +631,18 @@ func NewWithConfig(cfg Config) http.Handler {
 	mux.Handle("DELETE /api/admin/bans/{uid}", adminAPI(admin.handleAdminUnban))
 
 	return mux
+}
+
+// serveWebFile 输出内嵌的 Web 页面（演示页 / 登录框）。
+func serveWebFile(w http.ResponseWriter, name string) {
+	b, err := webFS.ReadFile(name)
+	if err != nil {
+		http.Error(w, "页面缺失", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Write(b)
 }
 
 // shortTarget 审计用的目标链接摘要：截断到 120 字符。

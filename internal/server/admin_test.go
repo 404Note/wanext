@@ -10,22 +10,23 @@ import (
 	"time"
 )
 
-func testAdminSetup(t *testing.T, token string) (*AdminManager, *Authenticator, *rateLimiter, *Registry, Auditor, *BanStore) {
+func testAdminSetup(t *testing.T, username, password string) (*AdminManager, *Authenticator, *rateLimiter, *Registry, Auditor, *BanStore) {
 	t.Helper()
 	audit := newMemAuditor()
 	bans := NewBanStore("")
 	auth := NewAuthenticator(true, testSecret, "test-appid", "test-secret", bans, audit)
 	limiter := newRateLimiter(20, 300)
 	reg := NewRegistry()
-	mgr := NewAdminManager(true, token, bans, audit, auth, limiter, reg)
+	mgr := NewAdminManager(true, username, password, bans, audit, auth, limiter, reg)
 	return mgr, auth, limiter, reg, audit, bans
 }
 
-const adminTestToken = "0123456789abcdef0123456789abcdef"
+const adminTestUser = "robinson"
+const adminTestPassword = "test-password-0123"
 
 func adminLogin(t *testing.T, mgr *AdminManager) (sessionCookie, csrf string) {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/api/admin/login", strings.NewReader(`{"token":"`+adminTestToken+`"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/login", strings.NewReader(`{"username":"`+adminTestUser+`","password":"`+adminTestPassword+`"}`))
 	w := httptest.NewRecorder()
 	mgr.handleAdminLogin(w, req)
 	if w.Code != http.StatusOK {
@@ -73,36 +74,43 @@ func adminReq(t *testing.T, mgr *AdminManager, method, path, body, cookie, csrf 
 	return w
 }
 
-func TestAdminLoginWrongToken(t *testing.T) {
-	mgr, _, _, _, _, _ := testAdminSetup(t, adminTestToken)
-	req := httptest.NewRequest(http.MethodPost, "/api/admin/login", strings.NewReader(`{"token":"wrong"}`))
+func TestAdminLoginWrongPassword(t *testing.T) {
+	mgr, _, _, _, _, _ := testAdminSetup(t, adminTestUser, adminTestPassword)
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/login", strings.NewReader(`{"username":"`+adminTestUser+`","password":"wrong-password"}`))
 	w := httptest.NewRecorder()
 	mgr.handleAdminLogin(w, req)
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("错误凭证应 401，得到 %d", w.Code)
 	}
-	if strings.Contains(w.Body.String(), adminTestToken) {
+	if strings.Contains(w.Body.String(), adminTestPassword) {
 		t.Error("错误响应不应泄露凭证")
+	}
+	// 错误账号同样 401
+	req2 := httptest.NewRequest(http.MethodPost, "/api/admin/login", strings.NewReader(`{"username":"nobody","password":"`+adminTestPassword+`"}`))
+	w2 := httptest.NewRecorder()
+	mgr.handleAdminLogin(w2, req2)
+	if w2.Code != http.StatusUnauthorized {
+		t.Errorf("错误账号应 401，得到 %d", w2.Code)
 	}
 }
 
 func TestAdminDisabled404(t *testing.T) {
-	mgr := NewAdminManager(false, "", NewBanStore(""), newMemAuditor(), nil, nil, nil)
+	mgr := NewAdminManager(false, "", "", NewBanStore(""), newMemAuditor(), nil, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/admin/", nil)
 	w := httptest.NewRecorder()
 	mgr.handleAdminPage(w, req)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("未启用时管理页应 404，得到 %d", w.Code)
 	}
-	// token 过短也保持关闭
-	mgr2 := NewAdminManager(true, "short", NewBanStore(""), newMemAuditor(), nil, nil, nil)
+	// 密码过短也保持关闭
+	mgr2 := NewAdminManager(true, "robinson", "short", NewBanStore(""), newMemAuditor(), nil, nil, nil)
 	if mgr2.enabled {
-		t.Error("过短 ADMIN_TOKEN 不应启用管理页")
+		t.Error("过短密码不应启用管理页")
 	}
 }
 
 func TestAdminAPIRequiresSession(t *testing.T) {
-	mgr, _, _, _, _, _ := testAdminSetup(t, adminTestToken)
+	mgr, _, _, _, _, _ := testAdminSetup(t, adminTestUser, adminTestPassword)
 	// 无会话访问管理接口 → 401
 	if w := adminReq(t, mgr, "GET", "/api/admin/stats", "", "", ""); w.Code != http.StatusUnauthorized {
 		t.Errorf("无会话应 401，得到 %d", w.Code)
@@ -124,7 +132,7 @@ func TestAdminAPIRequiresSession(t *testing.T) {
 }
 
 func TestBanFlowEndToEnd(t *testing.T) {
-	mgr, auth, _, reg, _, bans := testAdminSetup(t, adminTestToken)
+	mgr, auth, _, reg, _, bans := testAdminSetup(t, adminTestUser, adminTestPassword)
 	cookie, csrf := adminLogin(t, mgr)
 
 	// 用户登录拿令牌（跳过微信，用签发代替）
@@ -176,7 +184,7 @@ func TestBanFlowEndToEnd(t *testing.T) {
 }
 
 func TestBanRequiresReason(t *testing.T) {
-	mgr, _, _, _, _, _ := testAdminSetup(t, adminTestToken)
+	mgr, _, _, _, _, _ := testAdminSetup(t, adminTestUser, adminTestPassword)
 	cookie, csrf := adminLogin(t, mgr)
 	if w := adminReq(t, mgr, "POST", "/api/admin/bans", `{"uid":"u","duration":"24h","reason":""}`, cookie, csrf); w.Code != http.StatusBadRequest {
 		t.Errorf("缺原因应 400，得到 %d", w.Code)
@@ -215,7 +223,7 @@ func TestBanStorePersistence(t *testing.T) {
 }
 
 func TestResetLimit(t *testing.T) {
-	mgr, _, limiter, _, _, _ := testAdminSetup(t, adminTestToken)
+	mgr, _, limiter, _, _, _ := testAdminSetup(t, adminTestUser, adminTestPassword)
 	cookie, csrf := adminLogin(t, mgr)
 	small := newRateLimiter(1, 0)
 	// 手动构造一个耗尽的限流器并替换
@@ -253,5 +261,101 @@ func TestBanStoreCaps(t *testing.T) {
 	s.mu.Unlock()
 	if hn > banHistoryCap || on > banHistoryCap {
 		t.Errorf("历史/操作记录应截断在 %d，得到 %d/%d", banHistoryCap, hn, on)
+	}
+}
+
+// adminSessionCookie 走完整登录流程拿会话 cookie（首页门控测试用）。
+func adminSessionCookie(t *testing.T, h http.Handler) *http.Cookie {
+	t.Helper()
+	body := `{"username":"` + adminTestUser + `","password":"` + adminTestPassword + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/login", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("登录应 200，得到 %d: %s", w.Code, w.Body.String())
+	}
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "wanext_admin" {
+			return c
+		}
+	}
+	t.Fatal("登录未返回会话 cookie")
+	return nil
+}
+
+func testAdminConfig() Config {
+	return Config{
+		AuthRequired:  true,
+		JWTSecret:     string(testSecret),
+		WXAppID:       "test-appid",
+		WXSecret:      "test-secret",
+		AdminEnabled:  true,
+		AdminUser:     adminTestUser,
+		AdminPassword: adminTestPassword,
+	}
+}
+
+// TestHomepageLoginGate 管理页启用时：首页默认是登录框，登录后进演示页。
+func TestHomepageLoginGate(t *testing.T) {
+	cfg := testAdminConfig()
+	cfg.AdminDataDir = t.TempDir()
+	h := NewWithConfig(cfg)
+
+	// 未登录 → 登录框
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("未登录首页应 200，得到 %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "管理登录") {
+		t.Error("未登录首页应为登录框")
+	}
+
+	// 登录后 → 演示页
+	cookie := adminSessionCookie(t, h)
+	req2 := httptest.NewRequest(http.MethodGet, "/", nil)
+	req2.AddCookie(cookie)
+	w2 := httptest.NewRecorder()
+	h.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("登录后首页应 200，得到 %d", w2.Code)
+	}
+	if !strings.Contains(w2.Body.String(), "万能提取") {
+		t.Error("登录后首页应为演示页")
+	}
+
+	// 管理员会话可直接调业务接口（无需用户 JWT）：不应 401
+	req3 := httptest.NewRequest(http.MethodPost, "/api/parse",
+		strings.NewReader(`{"url":"https://example.com/x"}`))
+	req3.AddCookie(cookie)
+	w3 := httptest.NewRecorder()
+	h.ServeHTTP(w3, req3)
+	if w3.Code == http.StatusUnauthorized {
+		t.Error("管理员会话调用业务接口不应 401")
+	}
+}
+
+// TestHomepageNoAdmin 管理页未启用时保持旧行为。
+func TestHomepageNoAdmin(t *testing.T) {
+	// 鉴权开启 → 404
+	cfg := testAdminConfig()
+	cfg.AdminEnabled = false
+	cfg.AdminDataDir = t.TempDir()
+	h := NewWithConfig(cfg)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("鉴权开启且管理页关闭时首页应 404，得到 %d", w.Code)
+	}
+
+	// 鉴权关闭（本地开发）→ 演示页直达
+	cfg.AuthRequired = false
+	h2 := NewWithConfig(cfg)
+	w2 := httptest.NewRecorder()
+	h2.ServeHTTP(w2, httptest.NewRequest(http.MethodGet, "/", nil))
+	if w2.Code != http.StatusOK || !strings.Contains(w2.Body.String(), "万能提取") {
+		t.Errorf("本地开发模式首页应直达演示页，得到 %d", w2.Code)
 	}
 }

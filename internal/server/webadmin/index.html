@@ -46,7 +46,8 @@
 <body>
 <div id="login">
   <h2>管理页登录</h2>
-  <input id="token" type="password" placeholder="ADMIN_TOKEN" autocomplete="off">
+  <input id="username" placeholder="账号" autocomplete="username">
+  <input id="password" type="password" placeholder="密码" autocomplete="current-password">
   <button class="act" id="loginBtn">登录</button>
   <div class="err" id="loginErr"></div>
   <div class="muted">凭证只保存在服务端 .env，会话 8 小时有效。</div>
@@ -159,16 +160,17 @@
   }
 
   $('loginBtn').addEventListener('click', function () {
-    var token = $('token').value.trim();
-    if (!token) { $('loginErr').textContent = '请输入凭证'; return; }
+    var username = $('username').value.trim();
+    var password = $('password').value;
+    if (!username || !password) { $('loginErr').textContent = '请输入账号和密码'; return; }
     fetch('/api/admin/login', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: token }), credentials: 'same-origin'
+      body: JSON.stringify({ username: username, password: password }), credentials: 'same-origin'
     }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
       .then(function (x) {
         if (!x.ok) { $('loginErr').textContent = (x.j && x.j.error) || '登录失败'; return; }
         csrf = x.j.csrf || '';
-        $('token').value = '';
+        $('username').value = ''; $('password').value = '';
         showApp();
         loadStats();
       })

@@ -2,8 +2,8 @@
 //
 // 设计要点（见《wx-mp API 认证授权设计文档》第 16 节）：
 //   - 只供管理员本人单人使用，不做多管理员与 RBAC；
-//   - 管理员凭证独立于用户 JWT：ADMIN_TOKEN 只进服务端 .env，登录后换
-//     HttpOnly 会话 Cookie；写动作另带 CSRF 令牌；
+//   - 管理员凭证独立于用户 JWT：ADMIN_USER / ADMIN_PASSWORD 只进服务端 .env，
+//     登录后换 HttpOnly 会话 Cookie；写动作另带 CSRF 令牌；
 //   - 未启用或未配置凭证时 /admin/* 与 /api/admin/* 一律 404（失败关闭）；
 //   - 封禁即时生效并持久化到本地文件，重启不丢失。
 package server
@@ -11,6 +11,7 @@ package server
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/subtle"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -303,7 +304,8 @@ type adminSession struct {
 // AdminManager 管理页：会话、CSRF、接口装配。
 type AdminManager struct {
 	enabled      bool
-	tokenHash    [32]byte
+	username     string
+	passwordHash [32]byte
 	mu           sync.Mutex
 	sessions     map[string]*adminSession
 	loginLimiter *rateLimiter
@@ -314,8 +316,11 @@ type AdminManager struct {
 	registry     *Registry    // 媒体登记表（供封禁时作废令牌）
 }
 
-// NewAdminManager 构造管理页；token 为空或过短（<32 字节）时保持禁用。
-func NewAdminManager(enabled bool, token string, bans *BanStore, audit Auditor, auth *Authenticator, limiter *rateLimiter, registry *Registry) *AdminManager {
+// adminPasswordMinLen 管理员密码最小长度。
+const adminPasswordMinLen = 12
+
+// NewAdminManager 构造管理页；账号为空或密码过短时保持禁用（失败关闭）。
+func NewAdminManager(enabled bool, username, password string, bans *BanStore, audit Auditor, auth *Authenticator, limiter *rateLimiter, registry *Registry) *AdminManager {
 	m := &AdminManager{
 		bans:         bans,
 		audit:        audit,
@@ -325,11 +330,12 @@ func NewAdminManager(enabled bool, token string, bans *BanStore, audit Auditor, 
 		sessions:     map[string]*adminSession{},
 		loginLimiter: newRateLimiter(adminLoginMinuteLimit, 0),
 	}
-	if enabled && len(token) >= 32 {
+	if enabled && username != "" && len(password) >= adminPasswordMinLen {
 		m.enabled = true
-		m.tokenHash = sha256.Sum256([]byte(token))
+		m.username = username
+		m.passwordHash = sha256.Sum256([]byte(password))
 	} else if enabled {
-		log.Printf("[admin] ADMIN_TOKEN 未设置或过短（需≥32 字节），管理页保持关闭")
+		log.Printf("[admin] ADMIN_USER 为空或 ADMIN_PASSWORD 过短（需≥%d 位），管理页保持关闭", adminPasswordMinLen)
 	}
 	go m.cleanupSessions()
 	return m
@@ -386,6 +392,18 @@ func (m *AdminManager) requireAdmin(next http.Handler) http.Handler {
 	})
 }
 
+// sessionUID 供鉴权中间件：请求携带有效管理员会话时返回 ("admin", true)，
+// 让管理员在演示页直接调用业务接口（无需用户 JWT）。
+func (m *AdminManager) sessionUID(r *http.Request) (string, bool) {
+	if !m.enabled {
+		return "", false
+	}
+	if m.sessionFromRequest(r) == nil {
+		return "", false
+	}
+	return "admin", true
+}
+
 // handleAdminPage 管理页静态页；未启用时 404。
 func (m *AdminManager) handleAdminPage(w http.ResponseWriter, r *http.Request) {
 	if !m.enabled {
@@ -415,18 +433,21 @@ func (m *AdminManager) handleAdminLogin(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	var req struct {
-		Token string `json:"token"`
+		Username string `json:"username"`
+		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "请求体必须是 JSON"})
 		return
 	}
-	// 常量时间比较：先各自算摘要再比，避免时序泄露。
-	got := sha256.Sum256([]byte(req.Token))
-	if !hmac.Equal(got[:], m.tokenHash[:]) {
+	// 常量时间比较，避免时序泄露：账号直接比，密码先各自算摘要再比。
+	userOK := subtle.ConstantTimeCompare([]byte(req.Username), []byte(m.username)) == 1
+	pwSum := sha256.Sum256([]byte(req.Password))
+	pwOK := hmac.Equal(pwSum[:], m.passwordHash[:])
+	if !userOK || !pwOK {
 		log.Printf("[auth] 管理员登录失败 ip=%s", ip)
 		m.audit.Record(AuditEvent{Endpoint: "admin", IP: ip, Result: "deny401", Reason: "管理员凭证错误"})
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "凭证错误"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "用户名或密码错误"})
 		return
 	}
 	sid := httpx.RandomHex(32)

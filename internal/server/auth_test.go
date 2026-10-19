@@ -201,3 +201,52 @@ func TestRequireAuthMiddleware(t *testing.T) {
 		t.Errorf("开关关闭应直通，得到 %d", w.Code)
 	}
 }
+
+// TestRequireAuthAdminSession 管理员会话直通：无需用户 JWT 即可过中间件，
+// 上下文 uid 为 "admin"；无会话时仍 401。
+func TestRequireAuthAdminSession(t *testing.T) {
+	audit := newMemAuditor()
+	bans := NewBanStore("")
+	auth := NewAuthenticator(true, testSecret, "test-appid", "test-secret", bans, audit)
+	mgr := NewAdminManager(true, "admin-u", "admin-password-123", bans, audit, auth, nil, nil)
+	auth.adminSessionChecker = mgr.sessionUID
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(UIDFromContext(r.Context())))
+	})
+	h := auth.RequireAuth(next)
+
+	// 登录拿会话
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/admin/login",
+		strings.NewReader(`{"username":"admin-u","password":"admin-password-123"}`))
+	lw := httptest.NewRecorder()
+	mgr.handleAdminLogin(lw, loginReq)
+	if lw.Code != http.StatusOK {
+		t.Fatalf("登录应 200，得到 %d", lw.Code)
+	}
+	var cookie *http.Cookie
+	for _, c := range lw.Result().Cookies() {
+		if c.Name == "wanext_admin" {
+			cookie = c
+		}
+	}
+	if cookie == nil {
+		t.Fatal("未拿到会话 cookie")
+	}
+
+	// 带管理员会话、无 Bearer → 放行，uid=admin
+	req := httptest.NewRequest(http.MethodGet, "/api/parse", nil)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK || w.Body.String() != "admin" {
+		t.Errorf("管理员会话应放行且 uid=admin，得到 %d %q", w.Code, w.Body.String())
+	}
+
+	// 无会话无 Bearer → 401
+	w2 := httptest.NewRecorder()
+	h.ServeHTTP(w2, httptest.NewRequest(http.MethodGet, "/api/parse", nil))
+	if w2.Code != http.StatusUnauthorized {
+		t.Errorf("无凭证应 401，得到 %d", w2.Code)
+	}
+}
