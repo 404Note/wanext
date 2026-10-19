@@ -380,7 +380,12 @@ func NewWithConfig(cfg Config) http.Handler {
 func proxyMedia(w http.ResponseWriter, r *http.Request, e *mediaEntry) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, e.url, nil)
+	// HEAD 仅取元信息（小程序展示文件大小用）：上游同样用 HEAD，避免拉取整个文件。
+	method := http.MethodGet
+	if r.Method == http.MethodHead {
+		method = http.MethodHead
+	}
+	req, err := http.NewRequestWithContext(ctx, method, e.url, nil)
 	if err != nil {
 		http.Error(w, "构造请求失败", http.StatusInternalServerError)
 		return

@@ -54,7 +54,6 @@ function extractContent(inputText) {
       medias: medias.map((m) => ({
         kind: m.kind,
         proxyUrl: resolveURL(m.proxy_url),
-        directUrl: m.direct_url,
         coverUrl: resolveURL(m.cover_url) || '',
         width: m.width || 0,
         height: m.height || 0,
@@ -63,8 +62,37 @@ function extractContent(inputText) {
   });
 }
 
+// 取媒体文件大小（字节）：对代理地址发 HEAD 请求读 Content-Length。
+// 失败时返回 -1，调用方静默处理（不展示大小）。
+function getMediaSize(proxyUrl) {
+  return new Promise((resolve) => {
+    wx.request({
+      url: proxyUrl,
+      method: 'HEAD',
+      success(res) {
+        const h = res.header || {};
+        const len = h['content-length'] || h['Content-Length'];
+        const n = parseInt(len, 10);
+        resolve(Number.isFinite(n) && n >= 0 ? n : -1);
+      },
+      fail() {
+        resolve(-1);
+      },
+    });
+  });
+}
+
+function formatSize(bytes) {
+  if (!Number.isFinite(bytes) || bytes < 0) return '';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+}
+
 module.exports = {
   request,
   checkHealth,
   extractContent,
+  getMediaSize,
+  formatSize,
 };

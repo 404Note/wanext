@@ -34,11 +34,10 @@
         </swiper-item>
       </block>
     </swiper>
-    <view class="counter">第 {{currentIndex + 1}} / {{result.medias.length}}</view>
+    <view class="counter">第 {{currentIndex + 1}} / {{result.medias.length}}<text wx:if="{{mediaSize}}"> · {{mediaSize}}</text></view>
 
     <view class="actions">
       <button class="primary" bindtap="onSaveCurrent" disabled="{{saving}}">{{saving ? '保存中…' : '保存当前'}}</button>
-      <button bindtap="onCopy">复制</button>
     </view>
     <view wx:if="{{saving}}" class="hint">保存中…{{saveProgress}}%</view>
   </view>

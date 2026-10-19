@@ -20,6 +20,7 @@ Page({
     errorMsg: '',
     result: null,
     currentIndex: 0,
+    mediaSize: '',
     saving: false,
     saveProgress: 0,
   },
@@ -50,9 +51,11 @@ Page({
       errorMsg: '',
       result: null,
       currentIndex: 0,
+      mediaSize: '',
     });
     this._lastInput = '';
     this._retried = false;
+    this._sizeCache = {};
   },
 
   onExtract() {
@@ -87,7 +90,9 @@ Page({
           errorMsg: '',
           result,
           currentIndex: 0,
+          mediaSize: '',
         });
+        this._loadMediaSize(0);
       })
       .catch((err) => {
         this.setData({ status: 'error', errorMsg: mapError(err) });
@@ -105,7 +110,30 @@ Page({
         // 忽略：当前项无对应上下文
       }
     }
-    this.setData({ currentIndex: current });
+    this.setData({ currentIndex: current, mediaSize: '' });
+    this._loadMediaSize(current);
+  },
+
+  // 取当前媒体的文件大小并展示：按 proxyUrl 缓存，快速滑动时只保留最后一次的结果。
+  _loadMediaSize(index) {
+    const { result } = this.data;
+    const media = result && result.medias[index];
+    if (!media || !media.proxyUrl) {
+      this.setData({ mediaSize: '' });
+      return;
+    }
+    this._sizeCache = this._sizeCache || {};
+    if (this._sizeCache[media.proxyUrl] !== undefined) {
+      this.setData({ mediaSize: this._sizeCache[media.proxyUrl] });
+      return;
+    }
+    const token = (this._sizeToken = (this._sizeToken || 0) + 1);
+    api.getMediaSize(media.proxyUrl).then((bytes) => {
+      const text = api.formatSize(bytes);
+      this._sizeCache[media.proxyUrl] = text;
+      if (token !== this._sizeToken || this.data.currentIndex !== index) return;
+      this.setData({ mediaSize: text });
+    });
   },
 
   // 预览失败且疑似过期时，用原输入静默重新提取一次。
@@ -173,17 +201,5 @@ Page({
         }
         wx.showToast({ title: '保存失败，请重试', icon: 'none' });
       });
-  },
-
-  onCopy() {
-    const { result, currentIndex } = this.data;
-    const media = result && result.medias[currentIndex];
-    if (!media || !media.directUrl) return;
-    wx.setClipboardData({
-      data: media.directUrl,
-      success() {
-        wx.showToast({ title: '已复制', icon: 'success' });
-      },
-    });
   },
 });
