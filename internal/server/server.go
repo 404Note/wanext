@@ -394,13 +394,18 @@ func NewWithConfig(cfg Config) http.Handler {
 		dataDir = "data"
 	}
 	// 审计：SQLite 持久化优先，打不开则降级为内存模式（服务本身不受影响）。
-	var audit Auditor
+	var rawAudit Auditor
 	if a, err := NewAuditor(dataDir); err != nil {
 		log.Printf("[audit] SQLite 审计库打开失败，降级为内存模式: %v", err)
-		audit = newMemAuditor()
+		rawAudit = newMemAuditor()
 	} else {
-		audit = a
+		rawAudit = a
 	}
+	if s, ok := rawAudit.(*sqlAuditor); ok {
+		s.purgeUID("admin") // 审计口径变更：清理历史残留的管理员调试数据
+	}
+	// 管理员调试行为不计入审计，只统计微信端正常用户。
+	audit := NewFilteredAuditor(rawAudit)
 
 	bans := NewBanStore(filepath.Join(dataDir, "admin-state.json"))
 	if err := bans.Load(); err != nil {
@@ -469,13 +474,13 @@ func NewWithConfig(cfg Config) http.Handler {
 		ip := clientIP(r)
 		if !ipCoarse.allow(ip) {
 			audit.Record(AuditEvent{Endpoint: endpoint, UID: UIDFromContext(r.Context()), IP: ip,
-				Result: AuditLimit429, Reason: "IP 兜底限流", LatencyMs: time.Since(start).Milliseconds()})
+				Result: AuditLimit429, Remark: "IP 兜底限流", LatencyMs: time.Since(start).Milliseconds()})
 			writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "操作太频繁，请稍后再试"})
 			return false
 		}
 		if !limiter.allow(limitKey(r)) {
 			audit.Record(AuditEvent{Endpoint: endpoint, UID: UIDFromContext(r.Context()), IP: ip,
-				Result: AuditLimit429, Reason: "用户限流", LatencyMs: time.Since(start).Milliseconds()})
+				Result: AuditLimit429, Remark: "用户限流", LatencyMs: time.Since(start).Milliseconds()})
 			writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "操作太频繁，请稍后再试"})
 			return false
 		}
@@ -505,8 +510,8 @@ func NewWithConfig(cfg Config) http.Handler {
 		if err != nil {
 			logParseError(err, uid)
 			audit.Record(AuditEvent{Endpoint: "parse", UID: uid, IP: clientIP(r),
-				Platform: platformOf(err), Target: shortTarget(req.URL),
-				Result: AuditFail, Reason: parseFailReason(err), LatencyMs: time.Since(start).Milliseconds()})
+				Platform: platformOf(err), Target: shortTarget(cleanAuditTarget(req.URL)),
+				Result: AuditFail, Remark: parseFailReason(err), LatencyMs: time.Since(start).Milliseconds()})
 			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "解析失败！"})
 			return
 		}
@@ -533,18 +538,16 @@ func NewWithConfig(cfg Config) http.Handler {
 			})
 		}
 		audit.Record(AuditEvent{Endpoint: "parse", UID: uid, IP: clientIP(r),
-			Platform: res.Platform, Target: shortTarget(req.URL),
-			Result: AuditOK, MediaCount: len(out.Medias), LatencyMs: time.Since(start).Milliseconds()})
+			Platform: res.Platform, Target: shortTarget(cleanAuditTarget(req.URL)),
+			Result: AuditOK, Remark: fmt.Sprintf("%d 个媒体", len(out.Medias)),
+			MediaCount: len(out.Medias), LatencyMs: time.Since(start).Milliseconds()})
 		writeJSON(w, http.StatusOK, out)
 	})))
 
 	mux.HandleFunc("GET /api/media/{token}", func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
 		token := r.PathValue("token")
 		e := reg.Get(token)
 		if e == nil {
-			audit.Record(AuditEvent{Endpoint: "media", IP: clientIP(r),
-				Result: AuditFail, Reason: "令牌无效或过期", LatencyMs: time.Since(start).Milliseconds()})
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "链接已过期，请重新解析"})
 			return
 		}
@@ -552,15 +555,11 @@ func NewWithConfig(cfg Config) http.Handler {
 		// 组件的无头请求照常放行（持有 128 位随机令牌本身即凭证）。
 		if cfg.AuthRequired && e.ownerUID != "" {
 			if uid2, ok := auth.validBearerForMedia(r); ok && uid2 != e.ownerUID {
-				audit.Record(AuditEvent{Endpoint: "media", UID: uid2, IP: clientIP(r),
-					Result: AuditDeny403, Reason: "媒体令牌异主", LatencyMs: time.Since(start).Milliseconds()})
 				log.Printf("[auth] 403 媒体令牌异主 uid=%s owner=%s", uidShort(uid2), uidShort(e.ownerUID))
 				writeJSON(w, http.StatusForbidden, map[string]string{"error": "无权访问该媒体"})
 				return
 			}
 		}
-		audit.Record(AuditEvent{Endpoint: "media", UID: e.ownerUID, IP: clientIP(r),
-			Result: AuditOK, LatencyMs: time.Since(start).Milliseconds()})
 		select {
 		case mediaProxySem <- struct{}{}:
 			defer func() { <-mediaProxySem }()
@@ -568,8 +567,6 @@ func NewWithConfig(cfg Config) http.Handler {
 		case <-r.Context().Done():
 			return
 		default:
-			audit.Record(AuditEvent{Endpoint: "media", UID: e.ownerUID, IP: clientIP(r),
-				Result: AuditFail, Reason: "代理并发超限", LatencyMs: time.Since(start).Milliseconds()})
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "服务繁忙，请稍后重试"})
 			return
 		}
@@ -606,13 +603,14 @@ func NewWithConfig(cfg Config) http.Handler {
 		uid := UIDFromContext(r.Context())
 		if err != nil {
 			audit.Record(AuditEvent{Endpoint: "sharer", UID: uid, IP: clientIP(r),
-				Target: shortTarget(req.URL), Result: AuditFail, Reason: err.Error(),
+				Target: shortTarget(req.URL), Result: AuditFail, Remark: err.Error(),
 				LatencyMs: time.Since(start).Milliseconds()})
 			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 			return
 		}
 		audit.Record(AuditEvent{Endpoint: "sharer", UID: uid, IP: clientIP(r),
-			Target: shortTarget(req.URL), Result: AuditOK, LatencyMs: time.Since(start).Milliseconds()})
+			Target: shortTarget(req.URL), Result: AuditOK, Remark: "分享者解析成功",
+			LatencyMs: time.Since(start).Milliseconds()})
 		writeJSON(w, http.StatusOK, res)
 	})))
 
@@ -646,6 +644,24 @@ func serveWebFile(w http.ResponseWriter, name string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Write(b)
+}
+
+// cleanAuditTarget 从用户输入中提取第一个匹配到支持平台的 URL（去掉 App
+// 自动复制的杂字符）；无匹配时返回空字符串。失败解析的 Target 只记这个。
+func cleanAuditTarget(input string) string {
+	for _, u := range extract.ExtractURLs(input) {
+		pu, err := url.Parse(u)
+		if err != nil {
+			continue
+		}
+		host := strings.ToLower(pu.Hostname())
+		for _, p := range platform.All() {
+			if p.MatchHost(host) {
+				return u
+			}
+		}
+	}
+	return ""
 }
 
 // shortTarget 审计用的目标链接摘要：截断到 120 字符。

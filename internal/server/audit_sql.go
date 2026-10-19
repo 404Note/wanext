@@ -170,7 +170,7 @@ func (s *sqlAuditor) writeBatch(batch []AuditEvent) error {
 	}
 	for _, ev := range batch {
 		if _, err := estmt.Exec(ev.Time.Unix(), ev.Endpoint, ev.UID, ev.IP, ev.Platform,
-			ev.Target, ev.Result, ev.Reason, ev.LatencyMs, ev.MediaCount); err != nil {
+			ev.Target, ev.Result, ev.Remark, ev.LatencyMs, ev.MediaCount); err != nil {
 			estmt.Close()
 			return err
 		}
@@ -315,7 +315,7 @@ func (s *sqlAuditor) Events(f EventFilter) []AuditEvent {
 		var ev AuditEvent
 		var ts int64
 		if err := rows.Scan(&ts, &ev.Endpoint, &ev.UID, &ev.IP, &ev.Platform, &ev.Target,
-			&ev.Result, &ev.Reason, &ev.LatencyMs, &ev.MediaCount); err != nil {
+			&ev.Result, &ev.Remark, &ev.LatencyMs, &ev.MediaCount); err != nil {
 			continue
 		}
 		ev.Time = time.Unix(ts, 0)
@@ -477,4 +477,15 @@ func (s *sqlAuditor) Stats() StatsSnapshot {
 	}
 	snap.TopUsers = s.TopUsers(10)
 	return snap
+}
+
+// purgeUID 删除指定 uid 与 endpoint="admin" 的历史数据
+// （审计口径变更：管理员调试行为不再计入）。
+func (s *sqlAuditor) purgeUID(uid string) {
+	if _, err := s.db.Exec(`DELETE FROM events WHERE uid=? OR endpoint='admin'`, uid); err != nil {
+		log.Printf("[audit] 清理历史事件失败: %v", err)
+	}
+	if _, err := s.db.Exec(`DELETE FROM users WHERE uid=?`, uid); err != nil {
+		log.Printf("[audit] 清理历史用户失败: %v", err)
+	}
 }

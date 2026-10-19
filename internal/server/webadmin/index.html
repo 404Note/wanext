@@ -86,7 +86,7 @@
     <section id="tab-stats">
       <div class="cards" id="statCards"></div>
       <div class="panel"><h2>按平台分布（今日）</h2><div id="byPlatform"></div></div>
-      <div class="panel"><h2>失败原因 Top（今日）</h2><table id="failReasons"><thead><tr><th>原因</th><th>次数</th></tr></thead><tbody></tbody></table></div>
+      <div class="panel"><h2>失败备注 Top（今日）</h2><table id="failReasons"><thead><tr><th>原因</th><th>次数</th></tr></thead><tbody></tbody></table></div>
       <div class="panel"><h2>异常用户 Top（今日）</h2><table id="topUsers"><thead><tr><th>用户</th><th>调用</th><th>成功</th><th>失败</th><th>拒绝</th><th>429</th><th></th></tr></thead><tbody></tbody></table></div>
     </section>
     <section id="tab-users" class="hidden">
@@ -112,7 +112,7 @@
           </select>
           <button class="act ghost" id="evSearchBtn">检索</button>
         </div>
-        <table id="evTable"><thead><tr><th>时间</th><th>接口</th><th>用户</th><th>IP</th><th>平台</th><th>结果</th><th>原因</th><th>耗时ms</th></tr></thead><tbody></tbody></table>
+        <table id="evTable"><thead><tr><th>时间</th><th>接口</th><th>用户</th><th>IP</th><th>平台</th><th>结果</th><th>备注</th><th>耗时ms</th></tr></thead><tbody></tbody></table>
       </div>
     </section>
     <section id="tab-bans" class="hidden">
@@ -186,13 +186,18 @@
     api('/logout', { method: 'POST' }).finally(function () { needLogin(); });
   });
 
+  function switchTab(name) {
+    document.querySelectorAll('nav button[data-tab]').forEach(function (x) {
+      x.classList.toggle('active', x.dataset.tab === name);
+    });
+    ['stats', 'users', 'events', 'bans', 'demo'].forEach(function (t) {
+      $('tab-' + t).classList.toggle('hidden', t !== name);
+    });
+  }
+
   document.querySelectorAll('nav button[data-tab]').forEach(function (b) {
     b.addEventListener('click', function () {
-      document.querySelectorAll('nav button[data-tab]').forEach(function (x) { x.classList.remove('active'); });
-      b.classList.add('active');
-      ['stats', 'users', 'events', 'bans', 'demo'].forEach(function (t) {
-        $('tab-' + t).classList.toggle('hidden', t !== b.dataset.tab);
-      });
+      switchTab(b.dataset.tab);
       if (b.dataset.tab === 'stats') loadStats();
       if (b.dataset.tab === 'users') loadUsers();
       if (b.dataset.tab === 'events') loadEvents();
@@ -256,8 +261,9 @@
       html += '<h2 style="margin-top:16px">最近流水</h2><table><thead><tr><th>时间</th><th>接口</th><th>结果</th><th>原因</th></tr></thead><tbody>' +
         (d.events || []).map(function (e) {
           return '<tr><td>' + fmtTime(e.time) + '</td><td>' + esc(e.endpoint) + '</td><td>' + resultTag(e.result) +
-            '</td><td>' + esc(e.reason) + '</td></tr>';
+            '</td><td>' + esc(e.remark) + '</td></tr>';
         }).join('') + '</tbody></table>';
+      switchTab('users');
       var el = $('userDetail');
       el.innerHTML = html;
       el.classList.remove('hidden');
@@ -293,7 +299,7 @@
       $('evTable').querySelector('tbody').innerHTML = (d.events || []).map(function (e) {
         return '<tr><td>' + fmtTime(e.time) + '</td><td>' + esc(e.endpoint) + '</td><td class="mono">' +
           esc(shortUid(e.uid)) + '</td><td class="mono">' + esc(e.ip) + '</td><td>' + esc(e.platform) +
-          '</td><td>' + resultTag(e.result) + '</td><td>' + esc(e.reason) + '</td><td>' + (e.latency_ms || 0) + '</td></tr>';
+          '</td><td>' + resultTag(e.result) + '</td><td>' + esc(e.remark) + '</td><td>' + (e.latency_ms || 0) + '</td></tr>';
       }).join('');
     }).catch(function (e) { if (e.message !== 'unauth') alert(e.message); });
   }

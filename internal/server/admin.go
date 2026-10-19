@@ -430,7 +430,6 @@ func (m *AdminManager) handleAdminLogin(w http.ResponseWriter, r *http.Request) 
 	pwOK := hmac.Equal(pwSum[:], m.passwordHash[:])
 	if !userOK || !pwOK {
 		log.Printf("[auth] 管理员登录失败 ip=%s", ip)
-		m.audit.Record(AuditEvent{Endpoint: "admin", IP: ip, Result: "deny401", Reason: "管理员凭证错误"})
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "用户名或密码错误"})
 		return
 	}
@@ -452,7 +451,6 @@ func (m *AdminManager) handleAdminLogin(w http.ResponseWriter, r *http.Request) 
 	}
 	http.SetCookie(w, cookie)
 	log.Printf("[auth] 管理员登录成功 ip=%s", ip)
-	m.audit.Record(AuditEvent{Endpoint: "admin", IP: ip, Result: "ok", Reason: "管理员登录"})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "csrf": csrf})
 }
 
@@ -491,17 +489,17 @@ func (m *AdminManager) handleAdminUsers(w http.ResponseWriter, r *http.Request) 
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	users := m.audit.SearchUsers(q, 50)
 	type row struct {
-		UID       string           `json:"uid"`
-		Short     string           `json:"short"`
-		FirstSeen time.Time        `json:"first_seen"`
-		LastSeen  time.Time        `json:"last_seen"`
-		Calls     int64            `json:"calls"`
-		OK        int64            `json:"ok"`
-		Fail      int64            `json:"fail"`
-		Denied    int64            `json:"denied"`
-		Limit429  int64            `json:"limit429"`
-		Banned    bool             `json:"banned"`
-		Platforms map[string]int64 `json:"platforms"`
+		UID       string
+		Short     string
+		FirstSeen time.Time
+		LastSeen  time.Time
+		Calls     int64
+		OK        int64
+		Fail      int64
+		Denied    int64
+		Limit429  int64
+		Banned    bool
+		Platforms map[string]int64
 	}
 	out := make([]row, 0, len(users))
 	for _, u := range users {
@@ -582,7 +580,6 @@ func (m *AdminManager) handleAdminBan(w http.ResponseWriter, r *http.Request) {
 	m.bans.Ban(req.UID, until, req.Reason, "admin")
 	revoked := m.registry.RevokeByUID(req.UID)
 	log.Printf("[admin] 封禁 uid=%s until=%v 原因=%s 作废媒体令牌=%d", uidShort(req.UID), until, req.Reason, revoked)
-	m.audit.Record(AuditEvent{Endpoint: "admin", UID: req.UID, IP: clientIP(r), Result: "ok", Reason: "封禁:" + req.Reason})
 	writeAdminJSON(w, map[string]any{"ok": true, "revoked_media": revoked})
 }
 
@@ -594,7 +591,6 @@ func (m *AdminManager) handleAdminUnban(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	log.Printf("[admin] 解封 uid=%s", uidShort(uid))
-	m.audit.Record(AuditEvent{Endpoint: "admin", UID: uid, IP: clientIP(r), Result: "ok", Reason: "解封"})
 	writeAdminJSON(w, map[string]any{"ok": true})
 }
 

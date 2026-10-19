@@ -274,7 +274,7 @@ func (a *Authenticator) RequireAuth(next http.Handler) http.Handler {
 		deny := func(reason string) {
 			a.audit.Record(AuditEvent{
 				Endpoint: "auth", UID: "", IP: clientIP(r),
-				Result: "deny401", Reason: reason,
+				Result: "deny401", Remark: reason,
 				LatencyMs: time.Since(start).Milliseconds(),
 			})
 			log.Printf("[auth] 401 %s %s", r.URL.Path, reason)
@@ -317,7 +317,7 @@ func (a *Authenticator) handleLogin(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	ip := clientIP(r)
 	if !a.loginLimiter.allow(ip) {
-		a.audit.Record(AuditEvent{Endpoint: "login", IP: ip, Result: "limit429", Reason: "登录限流", LatencyMs: time.Since(start).Milliseconds()})
+		a.audit.Record(AuditEvent{Endpoint: "login", IP: ip, Result: "limit429", Remark: "登录限流", LatencyMs: time.Since(start).Milliseconds()})
 		log.Printf("[auth] 429 登录限流 ip=%s", ip)
 		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "操作太频繁，请稍后再试"})
 		return
@@ -345,7 +345,7 @@ func (a *Authenticator) handleLogin(w http.ResponseWriter, r *http.Request) {
 		var we *wechatError
 		if errors.As(err, &we) {
 			log.Printf("[auth] 微信换 openid 失败 code=%s errcode=%d errmsg=%s", maskCode(req.Code), we.Code, we.Msg)
-			a.audit.Record(AuditEvent{Endpoint: "login", IP: ip, Result: "fail", Reason: fmt.Sprintf("微信errcode=%d", we.Code), LatencyMs: time.Since(start).Milliseconds()})
+			a.audit.Record(AuditEvent{Endpoint: "login", IP: ip, Result: "fail", Remark: fmt.Sprintf("微信errcode=%d", we.Code), LatencyMs: time.Since(start).Milliseconds()})
 			// 40029: code 无效或已用过 → 前端重新 wx.login 取新 code 重试一次。
 			if we.Code == 40029 {
 				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "登录已失效，请重试"})
@@ -354,7 +354,7 @@ func (a *Authenticator) handleLogin(w http.ResponseWriter, r *http.Request) {
 		} else {
 			log.Printf("[auth] 微信接口调用失败 code=%s err=%v", maskCode(req.Code), err)
 		}
-		a.audit.Record(AuditEvent{Endpoint: "login", IP: ip, Result: "fail", Reason: "微信接口异常", LatencyMs: time.Since(start).Milliseconds()})
+		a.audit.Record(AuditEvent{Endpoint: "login", IP: ip, Result: "fail", Remark: "微信接口异常", LatencyMs: time.Since(start).Milliseconds()})
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "登录服务暂时不可用，请稍后重试"})
 		return
 	}
@@ -362,7 +362,7 @@ func (a *Authenticator) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if a.bans.IsBanned(uid) {
 		// 封禁用户：回与普通登录失败一致的中性文案，不给明确信号。
 		log.Printf("[auth] 被封禁用户尝试登录 uid=%s", uidShort(uid))
-		a.audit.Record(AuditEvent{Endpoint: "login", UID: uid, IP: ip, Result: "banned", Reason: "封禁命中", LatencyMs: time.Since(start).Milliseconds()})
+		a.audit.Record(AuditEvent{Endpoint: "login", UID: uid, IP: ip, Result: "banned", Remark: "封禁命中", LatencyMs: time.Since(start).Milliseconds()})
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "登录已失效，请重试"})
 		return
 	}
@@ -373,6 +373,6 @@ func (a *Authenticator) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("[auth] 登录成功 uid=%s", uidShort(uid))
-	a.audit.Record(AuditEvent{Endpoint: "login", UID: uid, IP: ip, Result: "ok", LatencyMs: time.Since(start).Milliseconds()})
+	a.audit.Record(AuditEvent{Endpoint: "login", UID: uid, IP: ip, Result: "ok", Remark: "微信登录成功", LatencyMs: time.Since(start).Milliseconds()})
 	writeJSON(w, http.StatusOK, map[string]any{"token": token, "expires_in": int(tokenTTL / time.Second)})
 }

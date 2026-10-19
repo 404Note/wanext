@@ -1,7 +1,10 @@
 package server
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -23,7 +26,7 @@ func TestSQLAuditorRoundtrip(t *testing.T) {
 	events := []AuditEvent{
 		{Time: now, Endpoint: "login", UID: "user-a", IP: "1.1.1.1", Result: AuditOK, LatencyMs: 10},
 		{Time: now, Endpoint: "parse", UID: "user-a", IP: "1.1.1.1", Platform: "douyin", Target: "v.douyin.com/x/", Result: AuditOK, MediaCount: 3, LatencyMs: 100},
-		{Time: now, Endpoint: "parse", UID: "user-a", IP: "1.1.1.1", Platform: "douyin", Result: AuditFail, Reason: "链接失效", LatencyMs: 50},
+		{Time: now, Endpoint: "parse", UID: "user-a", IP: "1.1.1.1", Platform: "douyin", Result: AuditFail, Remark: "链接失效", LatencyMs: 50},
 		{Time: now, Endpoint: "parse", UID: "user-b", IP: "2.2.2.2", Platform: "weibo", Result: AuditDeny401, LatencyMs: 1},
 		{Time: now, Endpoint: "media", UID: "user-a", IP: "1.1.1.1", Result: AuditOK, LatencyMs: 200},
 	}
@@ -138,5 +141,77 @@ func TestSQLAuditorDropped(t *testing.T) {
 	}
 	if n := len(s.ch); n != 10 {
 		t.Errorf("channel 应保留 10 条，实际 %d", n)
+	}
+}
+
+func TestAdminFilteredAuditor(t *testing.T) {
+	raw, err := newSQLAuditor(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.db.Close()
+	a := NewFilteredAuditor(raw)
+
+	// admin 与普通用户的事件
+	a.Record(AuditEvent{Endpoint: "parse", UID: "admin", Result: AuditOK, Remark: "调试"})
+	a.Record(AuditEvent{Endpoint: "admin", UID: "", Result: "ok", Remark: "管理员登录"})
+	a.Record(AuditEvent{Endpoint: "parse", UID: "user-x", Result: AuditOK, Remark: "2 个媒体"})
+	raw.flushSync()
+
+	if n := len(a.Events(EventFilter{})); n != 1 {
+		t.Errorf("应只剩 1 条正常用户事件，得到 %d", n)
+	}
+	if got := a.Events(EventFilter{})[0]; got.UID != "user-x" {
+		t.Errorf("剩余事件应为 user-x，得到 %q", got.UID)
+	}
+	if a.UserAgg("admin") != nil {
+		t.Error("UserAgg(admin) 应返回 nil")
+	}
+	if ua := a.UserAgg("user-x"); ua == nil || ua.Calls != 1 {
+		t.Errorf("UserAgg(user-x) 应保留，得到 %+v", ua)
+	}
+	for _, u := range a.TopUsers(10) {
+		if u.UID == "admin" {
+			t.Error("TopUsers 不应包含 admin")
+		}
+	}
+	for _, u := range a.SearchUsers("", 10) {
+		if u.UID == "admin" {
+			t.Error("SearchUsers 不应包含 admin")
+		}
+	}
+	if n := len(a.Events(EventFilter{UID: "admin"})); n != 0 {
+		t.Error("按 admin 查流水应返回空")
+	}
+	// 底层仍有 admin 数据被 purge 掉的验证放在集成层；此处确认过滤器本身有效
+}
+
+func TestCleanAuditTarget(t *testing.T) {
+	in := "7.77 复制打开抖音，看看【xx的作品】 https://v.douyin.com/abc123/  Extra fluff"
+	if got := cleanAuditTarget(in); got != "https://v.douyin.com/abc123/" {
+		t.Errorf("应提取出干净短链，得到 %q", got)
+	}
+	if got := cleanAuditTarget("纯文字无链接"); got != "" {
+		t.Errorf("无平台链接应返回空，得到 %q", got)
+	}
+	if got := cleanAuditTarget("看看这个 https://example.com/xyz/ 不支持的站"); got != "" {
+		t.Errorf("非支持平台应返回空，得到 %q", got)
+	}
+}
+
+func TestAdminUsersJSONKeys(t *testing.T) {
+	mgr, _, _, _, _, _ := testAdminSetup(t, adminTestUser, adminTestPassword)
+	mgr.audit.Record(AuditEvent{Endpoint: "parse", UID: "u1234567890abcdef", Result: AuditOK})
+	// 直接调 handler（会话校验由 requireAdmin 负责，此处只验证 JSON 字段名与前端一致）
+	w := httptest.NewRecorder()
+	mgr.handleAdminUsers(w, httptest.NewRequest(http.MethodGet, "/api/admin/users", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("用户列表应 200，得到 %d", w.Code)
+	}
+	body := w.Body.String()
+	for _, k := range []string{`"Short"`, `"Calls"`, `"FirstSeen"`, `"Banned"`, `"UID"`} {
+		if !strings.Contains(body, k) {
+			t.Errorf("用户列表 JSON 应包含 %s，得到 %s", k, body)
+		}
 	}
 }

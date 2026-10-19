@@ -63,8 +63,8 @@ func (a *memAuditor) Record(ev AuditEvent) {
 	if ev.Platform != "" {
 		a.perPlatform[ev.Platform]++
 	}
-	if ev.Result == AuditFail && ev.Reason != "" {
-		a.failReasons[ev.Reason]++
+	if ev.Result == AuditFail && ev.Remark != "" {
+		a.failReasons[ev.Remark]++
 	}
 	if ev.UID == "" {
 		return

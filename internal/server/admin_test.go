@@ -370,3 +370,25 @@ func TestHomepageNoAdmin(t *testing.T) {
 		t.Errorf("本地开发模式首页应直达演示页，得到 %d", w2.Code)
 	}
 }
+
+func TestAdminUserDetail(t *testing.T) {
+	mgr, _, _, _, _, _ := testAdminSetup(t, adminTestUser, adminTestPassword)
+	uid := "u1234567890abcdef"
+	mgr.audit.Record(AuditEvent{Endpoint: "parse", UID: uid, Platform: "douyin",
+		Result: AuditOK, Remark: "2 个媒体"})
+	mgr.audit.Record(AuditEvent{Endpoint: "parse", UID: uid, Platform: "douyin",
+		Target: "https://v.douyin.com/x/", Result: AuditFail, Remark: "链接失效"})
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/users/"+uid, nil)
+	req.SetPathValue("uid", uid)
+	w := httptest.NewRecorder()
+	mgr.handleAdminUserDetail(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("用户详情应 200，得到 %d", w.Code)
+	}
+	body := w.Body.String()
+	for _, k := range []string{`"Calls":2`, `"OK":1`, `"Fail":1`, `"remark":"链接失效"`, `"remark":"2 个媒体"`} {
+		if !strings.Contains(body, k) {
+			t.Errorf("详情 JSON 应包含 %s，得到 %s", k, body)
+		}
+	}
+}
