@@ -421,12 +421,13 @@ func NewWithConfig(cfg Config) http.Handler {
 			return
 		}
 		if admin.enabled {
-			// 管理页启用时：首页默认是登录框，登录后进演示页。
+			// 管理页启用时：`/` 未登录显示登录框，登录后直接显示管理界面
+			//（演示页已嵌入为管理页的功能模块，不再有独立的 /admin/ 路由）。
 			if admin.sessionFromRequest(r) == nil {
 				serveWebFile(w, "web/login.html")
 				return
 			}
-			serveWebFile(w, "web/index.html")
+			serveWebFile(w, "webadmin/index.html")
 			return
 		}
 		// 管理页未启用：旧行为（A9：鉴权开启时生产环境关闭 Web 测试页）。
@@ -615,8 +616,7 @@ func NewWithConfig(cfg Config) http.Handler {
 		writeJSON(w, http.StatusOK, res)
 	})))
 
-	// 管理页：页面与接口（未启用时一律 404，见 AdminManager）。
-	mux.HandleFunc("GET /admin/", admin.handleAdminPage)
+	// 管理页接口（未启用时一律 404，见 AdminManager.requireAdmin）。
 	mux.HandleFunc("POST /api/admin/login", admin.handleAdminLogin)
 	adminAPI := func(h http.HandlerFunc) http.Handler { return admin.requireAdmin(h) }
 	mux.Handle("GET /api/admin/me", adminAPI(admin.handleAdminMe))
@@ -633,9 +633,12 @@ func NewWithConfig(cfg Config) http.Handler {
 	return mux
 }
 
-// serveWebFile 输出内嵌的 Web 页面（演示页 / 登录框）。
+// serveWebFile 输出内嵌的 Web 页面（登录框 / 管理页 / 演示页）。
 func serveWebFile(w http.ResponseWriter, name string) {
 	b, err := webFS.ReadFile(name)
+	if err != nil {
+		b, err = webadminFS.ReadFile(name)
+	}
 	if err != nil {
 		http.Error(w, "页面缺失", http.StatusInternalServerError)
 		return

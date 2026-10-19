@@ -33,7 +33,7 @@ func adminLogin(t *testing.T, mgr *AdminManager) (sessionCookie, csrf string) {
 		t.Fatalf("管理员登录应 200，得到 %d: %s", w.Code, w.Body.String())
 	}
 	for _, c := range w.Result().Cookies() {
-		if c.Name == "wanext_admin" {
+		if c.Name == "sid" {
 			sessionCookie = c.Name + "=" + c.Value
 		}
 	}
@@ -95,12 +95,22 @@ func TestAdminLoginWrongPassword(t *testing.T) {
 }
 
 func TestAdminDisabled404(t *testing.T) {
-	mgr := NewAdminManager(false, "", "", NewBanStore(""), newMemAuditor(), nil, nil, nil)
-	req := httptest.NewRequest(http.MethodGet, "/admin/", nil)
-	w := httptest.NewRecorder()
-	mgr.handleAdminPage(w, req)
-	if w.Code != http.StatusNotFound {
-		t.Errorf("未启用时管理页应 404，得到 %d", w.Code)
+	// 未启用：管理接口一律 404
+	cfg := testAdminConfig()
+	cfg.AdminEnabled = false
+	cfg.AdminDataDir = t.TempDir()
+	h := NewWithConfig(cfg)
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodPost, "/api/admin/login"},
+		{http.MethodGet, "/api/admin/stats"},
+		{http.MethodGet, "/admin/"},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusNotFound {
+			t.Errorf("%s %s 未启用时应 404，得到 %d", tc.method, tc.path, w.Code)
+		}
 	}
 	// 密码过短也保持关闭
 	mgr2 := NewAdminManager(true, "robinson", "short", NewBanStore(""), newMemAuditor(), nil, nil, nil)
@@ -117,7 +127,7 @@ func TestAdminAPIRequiresSession(t *testing.T) {
 	}
 	// 用户 JWT 不能当管理员会话用
 	tok, _ := issueToken("user-1", testSecret)
-	if w := adminReq(t, mgr, "GET", "/api/admin/stats", "", "wanext_admin="+tok, ""); w.Code != http.StatusUnauthorized {
+	if w := adminReq(t, mgr, "GET", "/api/admin/stats", "", "sid="+tok, ""); w.Code != http.StatusUnauthorized {
 		t.Errorf("用户 JWT 访问管理接口应 401，得到 %d", w.Code)
 	}
 	// 有会话无 CSRF 的写动作 → 403
@@ -275,7 +285,7 @@ func adminSessionCookie(t *testing.T, h http.Handler) *http.Cookie {
 		t.Fatalf("登录应 200，得到 %d: %s", w.Code, w.Body.String())
 	}
 	for _, c := range w.Result().Cookies() {
-		if c.Name == "wanext_admin" {
+		if c.Name == "sid" {
 			return c
 		}
 	}
@@ -308,7 +318,7 @@ func TestHomepageLoginGate(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("未登录首页应 200，得到 %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "管理登录") {
+	if !strings.Contains(w.Body.String(), "/api/admin/login") {
 		t.Error("未登录首页应为登录框")
 	}
 
@@ -321,8 +331,9 @@ func TestHomepageLoginGate(t *testing.T) {
 	if w2.Code != http.StatusOK {
 		t.Fatalf("登录后首页应 200，得到 %d", w2.Code)
 	}
-	if !strings.Contains(w2.Body.String(), "万能提取") {
-		t.Error("登录后首页应为演示页")
+	body := w2.Body.String()
+	if !strings.Contains(body, "管理页") || !strings.Contains(body, `data-tab="demo"`) {
+		t.Error("登录后首页应为含演示模块的管理界面")
 	}
 
 	// 管理员会话可直接调业务接口（无需用户 JWT）：不应 401

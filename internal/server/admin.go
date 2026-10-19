@@ -317,7 +317,7 @@ type AdminManager struct {
 }
 
 // adminPasswordMinLen 管理员密码最小长度。
-const adminPasswordMinLen = 12
+const adminPasswordMinLen = 6
 
 // NewAdminManager 构造管理页；账号为空或密码过短时保持禁用（失败关闭）。
 func NewAdminManager(enabled bool, username, password string, bans *BanStore, audit Auditor, auth *Authenticator, limiter *rateLimiter, registry *Registry) *AdminManager {
@@ -356,7 +356,7 @@ func (m *AdminManager) cleanupSessions() {
 
 // sessionFromRequest 校验会话 Cookie，返回会话（无效返回 nil）。
 func (m *AdminManager) sessionFromRequest(r *http.Request) *adminSession {
-	c, err := r.Cookie("wanext_admin")
+	c, err := r.Cookie("sid")
 	if err != nil || c.Value == "" {
 		return nil
 	}
@@ -404,22 +404,6 @@ func (m *AdminManager) sessionUID(r *http.Request) (string, bool) {
 	return "admin", true
 }
 
-// handleAdminPage 管理页静态页；未启用时 404。
-func (m *AdminManager) handleAdminPage(w http.ResponseWriter, r *http.Request) {
-	if !m.enabled {
-		http.NotFound(w, r)
-		return
-	}
-	b, err := webadminFS.ReadFile("webadmin/index.html")
-	if err != nil {
-		http.Error(w, "页面缺失", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	w.Write(b)
-}
-
 // handleAdminLogin POST /api/admin/login：唯一公开的管理端点。
 func (m *AdminManager) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	if !m.enabled {
@@ -456,7 +440,7 @@ func (m *AdminManager) handleAdminLogin(w http.ResponseWriter, r *http.Request) 
 	m.sessions[sid] = &adminSession{csrf: csrf, expires: time.Now().Add(adminSessionTTL)}
 	m.mu.Unlock()
 	cookie := &http.Cookie{
-		Name:     "wanext_admin",
+		Name:     "sid",
 		Value:    sid,
 		Path:     "/",
 		MaxAge:   int(adminSessionTTL / time.Second),
@@ -474,12 +458,12 @@ func (m *AdminManager) handleAdminLogin(w http.ResponseWriter, r *http.Request) 
 
 // handleAdminLogout 注销。
 func (m *AdminManager) handleAdminLogout(w http.ResponseWriter, r *http.Request) {
-	if c, err := r.Cookie("wanext_admin"); err == nil {
+	if c, err := r.Cookie("sid"); err == nil {
 		m.mu.Lock()
 		delete(m.sessions, c.Value)
 		m.mu.Unlock()
 	}
-	http.SetCookie(w, &http.Cookie{Name: "wanext_admin", Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	http.SetCookie(w, &http.Cookie{Name: "sid", Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 

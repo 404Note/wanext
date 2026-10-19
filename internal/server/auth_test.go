@@ -226,7 +226,7 @@ func TestRequireAuthAdminSession(t *testing.T) {
 	}
 	var cookie *http.Cookie
 	for _, c := range lw.Result().Cookies() {
-		if c.Name == "wanext_admin" {
+		if c.Name == "sid" {
 			cookie = c
 		}
 	}

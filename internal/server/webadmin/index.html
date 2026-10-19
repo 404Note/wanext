@@ -34,26 +34,43 @@
   button.act.danger { background: #dc2626; }
   button.act.ghost { background: #eef0f3; color: #333; }
   button.link { background: none; border: 0; color: #2563eb; cursor: pointer; font-size: 13px; padding: 2px 4px; }
-  #login { max-width: 360px; margin: 120px auto; background: #fff; padding: 28px; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,.08); }
-  #login h2 { margin: 0 0 16px; font-size: 18px; }
-  #login input { width: 100%; margin-bottom: 12px; }
-  #login button { width: 100%; }
   .err { color: #c0392b; font-size: 13px; min-height: 20px; margin-top: 8px; }
   .muted { color: #888; font-size: 12px; }
   .hidden { display: none !important; }
+
+  #demoPlatforms span { display:inline-block; background:#eef0f3; border-radius:12px; padding:3px 10px; font-size:12px; color:#666; margin:0 6px 6px 0; }
+  #demoInput { width:100%; min-height:100px; border:1px solid #ddd; border-radius:6px; padding:10px; font-size:14px; resize:vertical; }
+  #demoInput:focus { border-color:#2563eb; outline:none; }
+  .demo-err { background:#fdecec; border:1px solid #f5c6c6; color:#c0392b; border-radius:8px; padding:12px; margin-top:12px; font-size:13px; line-height:1.6; }
+  .demo-meta { border:1px solid #eee; border-radius:8px; padding:12px 14px; margin-bottom:12px; }
+  .demo-meta h3 { font-size:15px; margin:6px 0; word-break:break-all; }
+  .demo-meta .sub { color:#888; font-size:12px; }
+  .demo-meta .src { margin-top:6px; font-size:12px; }
+  .demo-meta .src a { color:#2563eb; text-decoration:none; word-break:break-all; }
+  .demo-badge { display:inline-block; background:#e8effd; color:#2563eb; border-radius:6px; padding:2px 8px; font-size:12px; margin-bottom:4px; }
+  .demo-media { border:1px solid #eee; border-radius:8px; padding:12px; margin-bottom:12px; }
+  .demo-media .kind { font-size:12px; color:#888; margin-bottom:8px; }
+  .demo-carousel { position:relative; }
+  .demo-slides { display:flex; overflow-x:auto; scroll-snap-type:x mandatory; border-radius:6px; scrollbar-width:none; }
+  .demo-slides::-webkit-scrollbar { display:none; }
+  .demo-slides img, .demo-slides video { width:100%; flex:0 0 100%; scroll-snap-align:center; max-height:60vh; object-fit:contain; background:#000; border-radius:6px; }
+  .demo-car-btn { position:absolute; top:50%; transform:translateY(-50%); background:rgba(0,0,0,.55); color:#fff; border:none; width:34px; height:34px; border-radius:50%; font-size:20px; cursor:pointer; }
+  .demo-car-prev { left:8px; } .demo-car-next { right:8px; }
+  .demo-dots { text-align:center; margin-top:8px; }
+  .demo-dots span { display:inline-block; width:8px; height:8px; border-radius:50%; background:#ddd; margin:0 4px; cursor:pointer; }
+  .demo-dots span.on { background:#2563eb; }
+  .demo-actions { display:flex; gap:10px; margin-top:10px; }
+  .demo-actions a, .demo-actions button { flex:1; text-align:center; padding:9px; border-radius:6px; font-size:13px; cursor:pointer; text-decoration:none; }
+  .demo-dl { background:#16a34a; color:#fff; border:none; font-weight:600; }
+  .demo-cp { background:#eef0f3; color:#333; border:1px solid #ddd; }
+  .demo-json { margin-top:8px; }
+  .demo-json summary { cursor:pointer; color:#888; font-size:12px; }
+  .demo-json pre { background:#fafbfc; border:1px solid #eee; border-radius:6px; padding:10px; margin-top:6px; font-size:11px; overflow:auto; max-height:260px; white-space:pre-wrap; word-break:break-all; }
+  #demoToast { position:fixed; bottom:30px; left:50%; transform:translateX(-50%); background:#333; color:#fff; padding:8px 20px; border-radius:16px; font-size:13px; display:none; z-index:99; }
 </style>
 </head>
 <body>
-<div id="login">
-  <h2>管理页登录</h2>
-  <input id="username" placeholder="账号" autocomplete="username">
-  <input id="password" type="password" placeholder="密码" autocomplete="current-password">
-  <button class="act" id="loginBtn">登录</button>
-  <div class="err" id="loginErr"></div>
-  <div class="muted">凭证只保存在服务端 .env，会话 8 小时有效。</div>
-</div>
-
-<div id="app" class="hidden">
+<div id="app">
   <header>
     <h1>任意取 · 管理页</h1>
     <nav>
@@ -61,6 +78,7 @@
       <button data-tab="users">用户</button>
       <button data-tab="events">审计流水</button>
       <button data-tab="bans">封禁名单</button>
+      <button data-tab="demo">演示</button>
       <button id="logoutBtn">退出</button>
     </nav>
   </header>
@@ -102,6 +120,19 @@
       <div class="panel"><h2>历史（到期/已解封）</h2><table id="banHistTable"><thead><tr><th>用户</th><th>原因</th><th>到期</th><th>封禁时间</th></tr></thead><tbody></tbody></table></div>
       <div class="panel"><h2>管理员操作记录</h2><table id="opTable"><thead><tr><th>时间</th><th>动作</th><th>用户</th><th>详情</th></tr></thead><tbody></tbody></table></div>
     </section>
+
+    <section id="tab-demo" class="hidden">
+      <div class="panel">
+        <h2>万能提取演示</h2>
+        <div id="demoPlatforms"></div>
+        <textarea id="demoInput" placeholder="粘贴分享链接或完整分享文案…"></textarea>
+        <div class="row"><button class="act" id="demoBtn">解 析</button></div>
+        <div class="muted" id="demoLoading" style="display:none;margin-top:8px">解析中，请稍候…</div>
+        <div class="demo-err" id="demoErr" style="display:none"></div>
+        <div id="demoResult" style="margin-top:16px"></div>
+      </div>
+    </section>
+    <div id="demoToast"></div>
   </main>
 </div>
 
@@ -123,7 +154,7 @@
       body: opts.body ? JSON.stringify(opts.body) : undefined,
       credentials: 'same-origin'
     }).then(function (r) {
-      if (r.status === 401) { showLogin('会话已过期，请重新登录'); throw new Error('unauth'); }
+      if (r.status === 401) { needLogin(); throw new Error('unauth'); }
       if (r.status === 404) { throw new Error('接口不存在（管理页可能未启用）'); }
       return r.json().then(function (j) {
         if (!r.ok) throw new Error((j && j.error) || ('HTTP ' + r.status));
@@ -148,44 +179,18 @@
     });
   }
 
-  function showLogin(msg) {
-    $('app').classList.add('hidden');
-    $('login').classList.remove('hidden');
-    $('loginErr').textContent = msg || '';
-    csrf = '';
-  }
-  function showApp() {
-    $('login').classList.add('hidden');
-    $('app').classList.remove('hidden');
-  }
+  function needLogin() { location.href = '/'; }
 
-  $('loginBtn').addEventListener('click', function () {
-    var username = $('username').value.trim();
-    var password = $('password').value;
-    if (!username || !password) { $('loginErr').textContent = '请输入账号和密码'; return; }
-    fetch('/api/admin/login', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: username, password: password }), credentials: 'same-origin'
-    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
-      .then(function (x) {
-        if (!x.ok) { $('loginErr').textContent = (x.j && x.j.error) || '登录失败'; return; }
-        csrf = x.j.csrf || '';
-        $('username').value = ''; $('password').value = '';
-        showApp();
-        loadStats();
-      })
-      .catch(function (e) { $('loginErr').textContent = '网络错误：' + e.message; });
-  });
 
   $('logoutBtn').addEventListener('click', function () {
-    api('/logout', { method: 'POST' }).finally(function () { showLogin(''); });
+    api('/logout', { method: 'POST' }).finally(function () { needLogin(); });
   });
 
   document.querySelectorAll('nav button[data-tab]').forEach(function (b) {
     b.addEventListener('click', function () {
       document.querySelectorAll('nav button[data-tab]').forEach(function (x) { x.classList.remove('active'); });
       b.classList.add('active');
-      ['stats', 'users', 'events', 'bans'].forEach(function (t) {
+      ['stats', 'users', 'events', 'bans', 'demo'].forEach(function (t) {
         $('tab-' + t).classList.toggle('hidden', t !== b.dataset.tab);
       });
       if (b.dataset.tab === 'stats') loadStats();
@@ -312,13 +317,135 @@
     }).catch(function (e) { if (e.message !== 'unauth') alert(e.message); });
   }
 
+
+  var DEMO_PLATFORMS = [
+    ['douyin', '抖音'], ['kuaishou', '快手'], ['xiaohongshu', '小红书'], ['weibo', '微博'],
+    ['bilibili', 'B站'], ['x', 'X (Twitter)'], ['instagram', 'Instagram']
+  ];
+  $('demoPlatforms').innerHTML = DEMO_PLATFORMS.map(function (x) { return '<span>' + x[1] + '</span>'; }).join('');
+
+  function demoToast(msg) {
+    var t = $('demoToast');
+    t.textContent = msg; t.style.display = 'block';
+    setTimeout(function () { t.style.display = 'none'; }, 1800);
+  }
+  function demoShowErr(msg) {
+    var e = $('demoErr');
+    e.textContent = msg; e.style.display = 'block';
+  }
+  function demoParse() {
+    var input = $('demoInput').value.trim();
+    if (!input) { demoToast('请先粘贴分享链接'); return; }
+    var btn = $('demoBtn');
+    btn.disabled = true; btn.textContent = '解析中…';
+    $('demoLoading').style.display = 'block';
+    $('demoErr').style.display = 'none';
+    $('demoResult').innerHTML = '';
+    fetch('/api/parse', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: input }),
+      credentials: 'same-origin'
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, j: j }; });
+    }).then(function (x) {
+      if (!x.ok) { demoShowErr((x.j && x.j.error) || '未知错误'); return; }
+      demoRender(x.j);
+    }).catch(function (e) { demoShowErr('网络错误：' + e.message); })
+    .then(function () {
+      btn.disabled = false; btn.textContent = '解 析';
+      $('demoLoading').style.display = 'none';
+    });
+  }
+  $('demoBtn').addEventListener('click', demoParse);
+  $('demoInput').addEventListener('keydown', function (e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') demoParse();
+  });
+
+  function demoRender(d) {
+    var label = (DEMO_PLATFORMS.filter(function (x) { return x[0] === d.platform; })[0] || [d.platform, d.platform])[1];
+    var html = '<div class="demo-meta"><div class="demo-badge">' + esc(label) + '</div>' +
+      '<h3>' + esc(d.title) + '</h3>' +
+      '<div class="sub">' + (d.author ? '作者：' + esc(d.author) : '') + '</div>' +
+      (d.page_url ? '<div class="src"><a href="' + esc(d.page_url) + '" target="_blank">查看原帖 ↗</a></div>' : '') +
+      '</div>';
+    if (d.sharer) {
+      var s = d.sharer;
+      html += '<div class="demo-meta"><div class="demo-badge">分享者</div><h3>' + esc(s.nickname) + '</h3>' +
+        '<div class="sub">' + (s.douyin_id ? '抖音号：' + esc(s.douyin_id) : '') +
+        (s.share_time ? ' · 分享于 ' + esc(s.share_time) : '') + '</div>' +
+        (s.signature ? '<div class="sub">签名：' + esc(s.signature) + '</div>' : '') +
+        (s.profile_url ? '<div class="src"><a href="' + esc(s.profile_url) + '" target="_blank">分享者主页 ↗</a></div>' : '') +
+        '</div>';
+    }
+    if (d.medias && d.medias.length) html += demoCarousel(d.medias);
+    html += '<details class="demo-json"><summary>查看原始 JSON</summary><pre>' + esc(JSON.stringify(d, null, 2)) + '</pre></details>';
+    $('demoResult').innerHTML = html;
+  }
+
+  var DEMO_CARS = {};
+  var demoCarSeq = 0;
+  function demoCarousel(medias) {
+    var id = 'dcar' + (demoCarSeq++);
+    DEMO_CARS[id] = { medias: medias, i: 0 };
+    var slides = medias.map(function (m) {
+      return m.kind === 'video'
+        ? '<video controls preload="metadata" src="' + esc(m.proxy_url) + '"' + (m.cover_url ? ' poster="' + esc(m.cover_url) + '"' : '') + '></video>'
+        : '<img src="' + esc(m.proxy_url) + '" alt="图片" draggable="false">';
+    }).join('');
+    var multi = medias.length > 1;
+    var dots = medias.map(function (_, i) {
+      return '<span data-i="' + i + '" class="' + (i === 0 ? 'on' : '') + '" onclick="demoCarJump(\'' + id + '\',' + i + ')"></span>';
+    }).join('');
+    var tag0 = medias[0].kind === 'video' ? '视频' : '图片';
+    return '<div class="demo-media">' +
+      '<div class="kind" id="' + id + '-kind">' + tag0 + ' 1 / ' + medias.length + '</div>' +
+      '<div class="demo-carousel"><div class="demo-slides" id="' + id + '-slides" onscroll="demoCarSync(\'' + id + '\')">' + slides + '</div>' +
+      (multi ? '<button class="demo-car-btn demo-car-prev" onclick="demoCarGo(\'' + id + '\',-1)">‹</button>' +
+        '<button class="demo-car-btn demo-car-next" onclick="demoCarGo(\'' + id + '\',1)">›</button>' : '') +
+      '</div>' +
+      (multi ? '<div class="demo-dots" id="' + id + '-dots">' + dots + '</div>' : '') +
+      '<div class="demo-actions">' +
+      '<a class="demo-dl" id="' + id + '-dl" href="' + esc(medias[0].download_url) + '" download>⬇ 下载' + tag0 + '</a>' +
+      '<button class="demo-cp" onclick="demoCopyLink(\'' + esc(medias[0].direct_url) + '\')">复制直链</button>' +
+      '</div></div>';
+  }
+  window.demoCarGo = function (id, dir) {
+    var el = document.getElementById(id + '-slides');
+    el.scrollBy({ left: dir * el.clientWidth, behavior: 'smooth' });
+  };
+  window.demoCarJump = function (id, i) {
+    var el = document.getElementById(id + '-slides');
+    el.scrollTo({ left: i * el.clientWidth, behavior: 'smooth' });
+  };
+  window.demoCarSync = function (id) {
+    var c = DEMO_CARS[id];
+    if (!c) return;
+    var el = document.getElementById(id + '-slides');
+    var i = Math.round(el.scrollLeft / el.clientWidth);
+    if (i === c.i || i < 0 || i >= c.medias.length) return;
+    c.i = i;
+    el.querySelectorAll('video').forEach(function (v) { if (!v.paused) v.pause(); });
+    var m = c.medias[i];
+    var tag = m.kind === 'video' ? '视频' : '图片';
+    document.getElementById(id + '-kind').textContent = tag + ' ' + (i + 1) + ' / ' + c.medias.length;
+    var dl = document.getElementById(id + '-dl');
+    dl.href = m.download_url;
+    dl.textContent = '⬇ 下载' + tag;
+    var dots = document.getElementById(id + '-dots');
+    if (dots) Array.prototype.forEach.call(dots.children, function (x, j) { x.classList.toggle('on', j === i); });
+  };
+  window.demoCopyLink = function (u) {
+    navigator.clipboard.writeText(u).then(function () { demoToast('直链已复制'); }, function () { demoToast('复制失败'); });
+  };
+
   // 启动：先自检会话
   fetch('/api/admin/me', { credentials: 'same-origin' }).then(function (r) {
     return r.json().then(function (j) { return { ok: r.ok, j: j }; });
   }).then(function (x) {
-    if (x.ok) { csrf = x.j.csrf || ''; showApp(); loadStats(); }
-    else { showLogin(''); }
-  }).catch(function () { showLogin(''); });
+    if (x.ok) { csrf = x.j.csrf || ''; loadStats(); }
+    else { needLogin(); }
+  }).catch(function () { needLogin(); });
 })();
 </script>
 </body>

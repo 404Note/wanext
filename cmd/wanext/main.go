@@ -114,7 +114,7 @@ func usage() {
   JWT_SECRET                            JWT 签名密钥（≥32 字节，鉴权开启时必填，只进 .env）
   BANNED_UIDS                           紧急兜底封禁名单（uid 逗号分隔，管理页不可用时用）
   ADMIN_ENABLED                         1=启用管理页（需同时配置 ADMIN_USER / ADMIN_PASSWORD）
-  ADMIN_USER / ADMIN_PASSWORD           管理员账号密码（密码≥12 位，只进 .env）
+  ADMIN_USER / ADMIN_PASSWORD           管理员账号密码（密码≥6 位，只进 .env）
   ADMIN_DATA_DIR                        管理页状态文件目录（缺省 data）
   HTTP_PROXY / HTTPS_PROXY              上游请求代理（如需）`)
 }
