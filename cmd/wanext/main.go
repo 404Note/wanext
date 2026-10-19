@@ -116,5 +116,6 @@ func usage() {
   ADMIN_ENABLED                         1=启用管理页（需同时配置 ADMIN_USER / ADMIN_PASSWORD）
   ADMIN_USER / ADMIN_PASSWORD           管理员账号密码（密码≥6 位，只进 .env）
   ADMIN_DATA_DIR                        管理页状态文件目录（缺省 data）
+  BASE_PATH                             服务挂载的子路径前缀，如 /wx-mp/wanext（nginx 反代子路径部署用，缺省根路径）
   HTTP_PROXY / HTTPS_PROXY              上游请求代理（如需）`)
 }

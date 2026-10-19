@@ -89,11 +89,26 @@ type Config struct {
 	// AdminEnabled 管理页开关（环境变量 ADMIN_ENABLED=1）。
 	AdminEnabled bool
 	// AdminUser / AdminPassword 管理员账号密码，只进服务端 .env。
-	// 密码至少 12 位，否则管理页保持关闭（失败关闭）。
+	// 密码至少 6 位，否则管理页保持关闭（失败关闭）。
 	AdminUser     string
 	AdminPassword string
 	// AdminDataDir 封禁名单与管理员操作记录的持久化目录，缺省 "data"。
 	AdminDataDir string
+	// BasePath 服务挂载的子路径前缀，如 /wx-mp/wanext（nginx 反代子路径部署用）。
+	// 为空表示挂载在根路径。环境变量 BASE_PATH。
+	BasePath string
+}
+
+// normalizeBasePath 清洗子路径前缀：补前导斜杠、去尾斜杠；空表示根路径。
+func normalizeBasePath(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "/" {
+		return ""
+	}
+	if !strings.HasPrefix(s, "/") {
+		s = "/" + s
+	}
+	return strings.TrimSuffix(s, "/")
 }
 
 // normalizeBaseURL 清洗并校验 BaseURL：去尾斜杠；非空时必须 https:// 开头，
@@ -369,6 +384,7 @@ func ConfigFromEnv() (Config, error) {
 	if d := os.Getenv("ADMIN_DATA_DIR"); d != "" {
 		cfg.AdminDataDir = d
 	}
+	cfg.BasePath = normalizeBasePath(os.Getenv("BASE_PATH"))
 	return cfg, nil
 }
 
@@ -415,6 +431,9 @@ func NewWithConfig(cfg Config) http.Handler {
 
 	auth := NewAuthenticator(cfg.AuthRequired, []byte(cfg.JWTSecret), cfg.WXAppID, cfg.WXSecret, bans, audit)
 	admin := NewAdminManager(cfg.AdminEnabled, cfg.AdminUser, cfg.AdminPassword, bans, audit, auth, limiter, reg)
+	if cfg.BasePath != "" {
+		admin.cookiePath = cfg.BasePath // 子路径部署时会话 cookie 只在该前缀下回传
+	}
 	// 演示页走管理员会话调用业务接口：RequireAuth 优先认管理员会话。
 	auth.adminSessionChecker = admin.sessionUID
 
@@ -628,6 +647,18 @@ func NewWithConfig(cfg Config) http.Handler {
 	mux.Handle("POST /api/admin/bans", adminAPI(admin.handleAdminBan))
 	mux.Handle("DELETE /api/admin/bans/{uid}", adminAPI(admin.handleAdminUnban))
 
+	// 子路径部署（nginx 反代到 location 前缀下）：剥离前缀后再路由。
+	// nginx 侧必须保持完整路径透传（proxy_pass 末尾不加 /）。
+	if bp := cfg.BasePath; bp != "" {
+		inner := http.StripPrefix(bp, mux)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == bp {
+				http.Redirect(w, r, bp+"/", http.StatusFound)
+				return
+			}
+			inner.ServeHTTP(w, r)
+		})
+	}
 	return mux
 }
 

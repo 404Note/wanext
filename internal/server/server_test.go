@@ -34,7 +34,8 @@ func TestSanitizeFilename(t *testing.T) {
 	}
 }
 
-func TestParseHandlerValidation(t *testing.T) {	h := New()
+func TestParseHandlerValidation(t *testing.T) {
+	h := New()
 	// 空 body
 	req := httptest.NewRequest(http.MethodPost, "/api/parse", strings.NewReader(`{}`))
 	w := httptest.NewRecorder()
@@ -149,5 +150,105 @@ func TestRateLimiterPurge(t *testing.T) {
 	}
 	if !freshOK || n != 1 {
 		t.Errorf("活跃键不应被误删，剩余 %d", n)
+	}
+}
+
+func TestNormalizeBasePath(t *testing.T) {
+	cases := map[string]string{
+		"":               "",
+		"/":              "",
+		"wx-mp/wanext":   "/wx-mp/wanext",
+		"/wx-mp/wanext":  "/wx-mp/wanext",
+		"/wx-mp/wanext/": "/wx-mp/wanext",
+		"  /a/b  ":       "/a/b",
+	}
+	for in, want := range cases {
+		if got := normalizeBasePath(in); got != want {
+			t.Errorf("normalizeBasePath(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func testBasePathConfig(t *testing.T) Config {
+	t.Helper()
+	cfg := testAdminConfig()
+	cfg.BasePath = "/wx-mp/wanext"
+	cfg.AdminDataDir = t.TempDir()
+	return cfg
+}
+
+// TestBasePathRouting 子路径部署：所有路由挂在前缀下，无前缀请求 404，
+// 裸前缀重定向到带斜杠版本。
+func TestBasePathRouting(t *testing.T) {
+	h := NewWithConfig(testBasePathConfig(t))
+
+	// 健康检查：带前缀 200，无前缀 404
+	for _, tc := range []struct {
+		path string
+		code int
+	}{
+		{"/wx-mp/wanext/api/health", http.StatusOK},
+		{"/api/health", http.StatusNotFound},
+		{"/wx-mp/wanext/", http.StatusOK}, // 未登录 → 登录框
+		{"/other/", http.StatusNotFound},
+	} {
+		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != tc.code {
+			t.Errorf("GET %s = %d, want %d", tc.path, w.Code, tc.code)
+		}
+	}
+
+	// 裸前缀 → 302 到带斜杠版本
+	req := httptest.NewRequest(http.MethodGet, "/wx-mp/wanext", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusFound || w.Header().Get("Location") != "/wx-mp/wanext/" {
+		t.Errorf("裸前缀应 302 到 /wx-mp/wanext/，得到 %d %q", w.Code, w.Header().Get("Location"))
+	}
+}
+
+// TestBasePathLoginFlow 子路径下完整登录：cookie Path 跟随前缀，登录后首页为管理页。
+func TestBasePathLoginFlow(t *testing.T) {
+	h := NewWithConfig(testBasePathConfig(t))
+
+	// 登录
+	body := `{"username":"` + adminTestUser + `","password":"` + adminTestPassword + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/wx-mp/wanext/api/admin/login", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("登录应 200，得到 %d: %s", w.Code, w.Body.String())
+	}
+	var cookie *http.Cookie
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "sid" {
+			cookie = c
+		}
+	}
+	if cookie == nil {
+		t.Fatal("未拿到会话 cookie")
+	}
+	if cookie.Path != "/wx-mp/wanext" {
+		t.Errorf("cookie Path 应为 /wx-mp/wanext，得到 %q", cookie.Path)
+	}
+
+	// 登录后首页 → 管理页
+	req2 := httptest.NewRequest(http.MethodGet, "/wx-mp/wanext/", nil)
+	req2.AddCookie(cookie)
+	w2 := httptest.NewRecorder()
+	h.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusOK || !strings.Contains(w2.Body.String(), `data-tab="demo"`) {
+		t.Errorf("登录后首页应为管理页，得到 %d", w2.Code)
+	}
+
+	// 管理接口在前缀下可用
+	req3 := httptest.NewRequest(http.MethodGet, "/wx-mp/wanext/api/admin/stats", nil)
+	req3.AddCookie(cookie)
+	w3 := httptest.NewRecorder()
+	h.ServeHTTP(w3, req3)
+	if w3.Code != http.StatusOK {
+		t.Errorf("管理接口应 200，得到 %d", w3.Code)
 	}
 }

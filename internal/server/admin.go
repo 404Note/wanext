@@ -306,6 +306,7 @@ type AdminManager struct {
 	enabled      bool
 	username     string
 	passwordHash [32]byte
+	cookiePath   string // 会话 cookie 的 Path：子路径部署时跟随 BASE_PATH，缺省 "/"
 	mu           sync.Mutex
 	sessions     map[string]*adminSession
 	loginLimiter *rateLimiter
@@ -322,6 +323,7 @@ const adminPasswordMinLen = 6
 // NewAdminManager 构造管理页；账号为空或密码过短时保持禁用（失败关闭）。
 func NewAdminManager(enabled bool, username, password string, bans *BanStore, audit Auditor, auth *Authenticator, limiter *rateLimiter, registry *Registry) *AdminManager {
 	m := &AdminManager{
+		cookiePath:   "/",
 		bans:         bans,
 		audit:        audit,
 		auth:         auth,
@@ -441,13 +443,15 @@ func (m *AdminManager) handleAdminLogin(w http.ResponseWriter, r *http.Request) 
 	cookie := &http.Cookie{
 		Name:     "sid",
 		Value:    sid,
-		Path:     "/",
+		Path:     m.cookiePath,
 		MaxAge:   int(adminSessionTTL / time.Second),
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
 	}
-	if r.TLS != nil {
-		cookie.Secure = true // 公网 HTTPS 下启用；本地 http 开发时不加（否则浏览器不回传）
+	// 直连 TLS 或反代终止 TLS（X-Forwarded-Proto）时启用 Secure；
+	// 本地 http 开发时不加（否则浏览器不回传）。
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		cookie.Secure = true
 	}
 	http.SetCookie(w, cookie)
 	log.Printf("[auth] 管理员登录成功 ip=%s", ip)
@@ -461,7 +465,7 @@ func (m *AdminManager) handleAdminLogout(w http.ResponseWriter, r *http.Request)
 		delete(m.sessions, c.Value)
 		m.mu.Unlock()
 	}
-	http.SetCookie(w, &http.Cookie{Name: "sid", Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	http.SetCookie(w, &http.Cookie{Name: "sid", Value: "", Path: m.cookiePath, MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 

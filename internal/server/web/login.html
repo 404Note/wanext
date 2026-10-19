@@ -34,14 +34,14 @@ const b = document.getElementById('b'), e = document.getElementById('e');
 e.textContent = '';
 b.disabled = true;
 try {
-const r = await fetch('/api/admin/login', {
+const r = await fetch('api/admin/login', {
 method: 'POST',
 headers: {'Content-Type': 'application/json'},
 body: JSON.stringify({ username: document.getElementById('u').value.trim(), password: document.getElementById('p').value })
 });
 const d = await r.json().catch(() => ({}));
 if (!r.ok) { e.textContent = d.error || '登录失败'; return; }
-location.href = '/';
+location.reload();
 } catch (ex) {
 e.textContent = '网络错误';
 } finally {

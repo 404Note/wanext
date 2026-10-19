@@ -318,7 +318,7 @@ func TestHomepageLoginGate(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("未登录首页应 200，得到 %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "/api/admin/login") {
+	if !strings.Contains(w.Body.String(), "api/admin/login") {
 		t.Error("未登录首页应为登录框")
 	}
 

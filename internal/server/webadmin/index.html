@@ -148,7 +148,7 @@
     if (csrf && (opts.method === 'POST' || opts.method === 'DELETE' || opts.method === 'PUT')) {
       headers['X-CSRF-Token'] = csrf;
     }
-    return fetch('/api/admin' + path, {
+    return fetch('api/admin' + path, {
       method: opts.method || 'GET',
       headers: headers,
       body: opts.body ? JSON.stringify(opts.body) : undefined,
@@ -179,7 +179,7 @@
     });
   }
 
-  function needLogin() { location.href = '/'; }
+  function needLogin() { location.reload(); }
 
 
   $('logoutBtn').addEventListener('click', function () {
@@ -347,7 +347,7 @@
     $('demoLoading').style.display = 'block';
     $('demoErr').style.display = 'none';
     $('demoResult').innerHTML = '';
-    fetch('/api/parse', {
+    fetch('api/parse', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url: input }),
@@ -446,7 +446,7 @@
   };
 
   // 启动：先自检会话
-  fetch('/api/admin/me', { credentials: 'same-origin' }).then(function (r) {
+  fetch('api/admin/me', { credentials: 'same-origin' }).then(function (r) {
     return r.json().then(function (j) { return { ok: r.ok, j: j }; });
   }).then(function (x) {
     if (x.ok) { csrf = x.j.csrf || ''; loadStats(); }
