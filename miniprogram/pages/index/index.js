@@ -34,7 +34,9 @@ Page({
       .then((text) => {
         if (text) {
           this.setData({ inputText: text });
+          return;
         }
+        wx.showToast({ title: '剪贴板没有内容', icon: 'none' });
       })
       .catch(() => {
         wx.showToast({ title: '读取失败，请手动输入', icon: 'none' });
@@ -72,6 +74,9 @@ Page({
   _doExtract(input, silent) {
     if (!silent) {
       this.setData({ status: 'loading', errorMsg: '' });
+      // 用户手动发起新的提取，重置自动恢复标记；静默重提取不重置，
+      // 否则 onMediaError 成功后会把标记清掉，导致失败时无限循环重提取。
+      this._retried = false;
     }
     this._lastInput = input;
     return api
@@ -83,7 +88,6 @@ Page({
           result,
           currentIndex: 0,
         });
-        this._retried = false;
       })
       .catch((err) => {
         this.setData({ status: 'error', errorMsg: mapError(err) });
