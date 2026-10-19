@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -239,5 +240,35 @@ func TestDouyinRSCItem(t *testing.T) {
 	}
 	if strings.Contains(res.Medias[0].DirectURL, "playwm") {
 		t.Errorf("未去水印: %s", res.Medias[0].DirectURL)
+	}
+}
+
+func TestDouyinRetryable(t *testing.T) {
+	cases := []struct {
+		err  error
+		want bool
+	}{
+		{nil, false},
+		{fmt.Errorf("分享页缺少 videoInfoRes"), true},
+		{fmt.Errorf("详情接口返回空响应（平台可能限制了当前网络）"), true},
+		{fmt.Errorf("获取分享页失败: connection reset"), true},
+		{fmt.Errorf("作品不可用(status_code=1)"), false},
+	}
+	for _, c := range cases {
+		if got := douyinRetryable(c.err); got != c.want {
+			t.Errorf("douyinRetryable(%v) = %v, want %v", c.err, got, c.want)
+		}
+	}
+}
+
+func TestDouyinDiagWebID(t *testing.T) {
+	if got := douyinDiagWebID(`<div id=douyin_reflow_webId webId=undefined>`); got != "undefined" {
+		t.Errorf("shell page webId = %q, want undefined", got)
+	}
+	if got := douyinDiagWebID(`<div id=douyin_reflow_webId webId=7695853187903473206>`); got != "7695853187903473206" {
+		t.Errorf("normal webId = %q", got)
+	}
+	if got := douyinDiagWebID(`<html>no webid here</html>`); got != "缺失" {
+		t.Errorf("missing webId = %q, want 缺失", got)
 	}
 }

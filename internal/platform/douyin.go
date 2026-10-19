@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 
 	"wanext/internal/httpx"
 	"wanext/internal/model"
@@ -34,6 +35,12 @@ var (
 	// Next.js RSC 数据块：self.__pace_f.push([1,"..."])
 	douyinRSCPushRe = regexp.MustCompile(`(?s)self\.__pace_f\.push\(\[1,\s*"((?:[^"\\]|\\.)*)"\s*\]\)`)
 )
+
+// douyinMaxAttempts 壳页面/瞬时失败时的最大尝试次数（首次 + 重试）。
+const douyinMaxAttempts = 3
+
+// douyinRetryBackoff 每次重试前的等待时长。
+const douyinRetryBackoff = 1500 * time.Millisecond
 
 func (p Douyin) Parse(ctx context.Context, rawURL string) (*model.Result, error) {
 	// 全程共用一个 RawClient，保持 cookie；头按 Chrome 顺序发出（抖音检测头顺序）
@@ -64,10 +71,56 @@ func (p Douyin) Parse(ctx context.Context, rawURL string) (*model.Result, error)
 	var lastErr error
 	var shareBody []byte
 
-	// 3. 主路径：分享页内嵌的 _ROUTER_DATA（需 Chrome TLS 指纹 + 头顺序才会返回完整数据）
+	// 3-4. 主路径 + 兜底：抖音间歇性返回无数据的壳页面（无 videoInfoRes /
+	// webId=undefined），此时自动重试；每次重试都重新拉取分享页。
+	made := 0
+	for made < douyinMaxAttempts {
+		made++
+		if made > 1 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(douyinRetryBackoff):
+			}
+		}
+		res, sb, err := p.tryParseOnce(ctx, cli, itemID, finalURL, s)
+		if err == nil {
+			p.attachSharer(ctx, rawURL, res)
+			return res, nil
+		}
+		lastErr = err
+		if sb != nil {
+			shareBody = sb
+		}
+		if !douyinRetryable(err) {
+			break
+		}
+	}
+
+	// 诊断信息：用分享页 body（若有）而非短链 body；明确区分壳页面的两种失败模式
+	//（无 videoInfoRes vs webId=undefined），避免"含webId=true"的误导。
+	diagBody := s
+	if shareBody != nil {
+		diagBody = string(shareBody)
+	}
+	diag := fmt.Sprintf("页面长度=%d, 含_ROUTER_DATA=%v, 含videoInfoRes=%v, webId=%s",
+		len(diagBody), strings.Contains(diagBody, "_ROUTER_DATA"),
+		strings.Contains(diagBody, "videoInfoRes"), douyinDiagWebID(diagBody))
+	if made > 1 {
+		diag += fmt.Sprintf("；已自动重试%d次", made-1)
+	}
+	return nil, fmt.Errorf("%v；%s", lastErr, diag)
+}
+
+// tryParseOnce 尝试一次完整解析：分享页主路径（_ROUTER_DATA/RSC）+ 详情接口兜底。
+// 返回 (result, sharePageBody, error)。
+func (p Douyin) tryParseOnce(ctx context.Context, cli *httpx.RawClient, itemID, finalURL, shortBody string) (*model.Result, []byte, error) {
+	var lastErr error
+	var shareBody []byte
+
+	// 主路径：分享页内嵌的 _ROUTER_DATA（需 Chrome TLS 指纹 + 头顺序才会返回完整数据）
 	if res, body, err := p.parseSharePage(ctx, cli, itemID, finalURL); err == nil {
-		p.attachSharer(ctx, rawURL, res)
-		return res, nil
+		return res, body, nil
 	} else {
 		lastErr = err
 		if body != nil {
@@ -75,28 +128,45 @@ func (p Douyin) Parse(ctx context.Context, rawURL string) (*model.Result, error)
 		}
 	}
 
-	// 4. 兜底：详情接口（需分享页 HTML 中的 webId/reflow token）
+	// 兜底：详情接口（需分享页 HTML 中的 webId/reflow token）
 	// 用分享页的 body（若主路径已拿到），否则用短链的 body
-	fallbackBody := s
+	fallbackBody := shortBody
 	if shareBody != nil {
 		fallbackBody = string(shareBody)
 	}
 	if res, err := p.parseItemInfo(ctx, cli, itemID, fallbackBody); err == nil {
 		res.PageURL = finalURL
-		p.attachSharer(ctx, rawURL, res)
-		return res, nil
+		return res, shareBody, nil
 	} else {
 		lastErr = err
 	}
+	return nil, shareBody, lastErr
+}
 
-	// 诊断信息：用分享页 body（若有）而非短链 body
-	diagBody := s
-	if shareBody != nil {
-		diagBody = string(shareBody)
+// douyinRetryable 判断解析失败是否值得重试：壳页面、空响应、网络抖动等瞬时
+// 失败返回 true；作品本身不可用等确定性失败返回 false。
+func douyinRetryable(err error) bool {
+	if err == nil {
+		return false
 	}
-	diag := fmt.Sprintf("页面长度=%d, 含_ROUTER_DATA=%v, 含webId=%v",
-		len(diagBody), strings.Contains(diagBody, "_ROUTER_DATA"), strings.Contains(diagBody, "webId"))
-	return nil, fmt.Errorf("%v；%s", lastErr, diag)
+	// 作品不可用是确定性失败，重试无意义
+	if strings.Contains(err.Error(), "作品不可用(status_code=") {
+		return false
+	}
+	return true
+}
+
+// douyinDiagWebID 返回分享页中 webId 的诊断状态，用于区分壳页面的失败模式：
+// "undefined"（壳页面未下发设备 ID）、具体数字 ID、或"缺失"。
+func douyinDiagWebID(html string) string {
+	if regexp.MustCompile(`webId\s*=\s*undefined`).MatchString(html) ||
+		regexp.MustCompile(`"webId"\s*:\s*"undefined"`).MatchString(html) {
+		return "undefined"
+	}
+	if id := extractDouyinWebID(html); id != "" {
+		return id
+	}
+	return "缺失"
 }
 
 // attachSharer 尽力解析分享链接背后的分享者身份并挂到结果上。
