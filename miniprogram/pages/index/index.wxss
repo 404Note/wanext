@@ -109,13 +109,6 @@
   word-break: break-all;
 }
 
-.codeblock-hint {
-  display: block;
-  margin-top: 8rpx;
-  font-size: 22rpx;
-  color: #aaa;
-}
-
 .mono {
   font-family: monospace;
 }

@@ -24,7 +24,6 @@
     <view class="meta">
       <view class="codeblock" bindtap="onCopyText" data-text="{{result.title}}">
         <text class="codeblock-text">{{result.title}}</text>
-        <text class="codeblock-hint">轻触复制标题</text>
       </view>
       <text wx:if="{{result.author}}" class="result-author">{{result.author}}</text>
     </view>
