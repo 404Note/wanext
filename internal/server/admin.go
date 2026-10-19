@@ -308,14 +308,14 @@ type AdminManager struct {
 	sessions     map[string]*adminSession
 	loginLimiter *rateLimiter
 	bans         *BanStore
-	audit        *Auditor
+	audit        Auditor
 	auth         *Authenticator
 	limiter      *rateLimiter // 业务限流器（供 reset-limit）
 	registry     *Registry    // 媒体登记表（供封禁时作废令牌）
 }
 
 // NewAdminManager 构造管理页；token 为空或过短（<32 字节）时保持禁用。
-func NewAdminManager(enabled bool, token string, bans *BanStore, audit *Auditor, auth *Authenticator, limiter *rateLimiter, registry *Registry) *AdminManager {
+func NewAdminManager(enabled bool, token string, bans *BanStore, audit Auditor, auth *Authenticator, limiter *rateLimiter, registry *Registry) *AdminManager {
 	m := &AdminManager{
 		bans:         bans,
 		audit:        audit,

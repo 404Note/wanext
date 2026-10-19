@@ -222,12 +222,12 @@ type Authenticator struct {
 	appID        string
 	appSecret    string
 	bans         *BanStore
-	audit        *Auditor
+	audit        Auditor
 	loginLimiter *rateLimiter
 }
 
 // NewAuthenticator 构造鉴权器；secret 为 JWT 签名密钥。
-func NewAuthenticator(required bool, secret []byte, appID, appSecret string, bans *BanStore, audit *Auditor) *Authenticator {
+func NewAuthenticator(required bool, secret []byte, appID, appSecret string, bans *BanStore, audit Auditor) *Authenticator {
 	return &Authenticator{
 		required:     required,
 		secret:       secret,

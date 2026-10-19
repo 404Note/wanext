@@ -96,7 +96,7 @@ func wechatStub(t *testing.T, body string, delay time.Duration) *httptest.Server
 }
 
 func testAuthenticator(required bool) *Authenticator {
-	return NewAuthenticator(required, testSecret, "test-appid", "test-secret", NewBanStore(""), NewAuditor())
+	return NewAuthenticator(required, testSecret, "test-appid", "test-secret", NewBanStore(""), newMemAuditor())
 }
 
 func doLogin(a *Authenticator, body string) *httptest.ResponseRecorder {

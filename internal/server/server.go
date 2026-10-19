@@ -386,12 +386,19 @@ func NewWithConfig(cfg Config) http.Handler {
 	reg := NewRegistry()
 	limiter := newRateLimiter(parseMinuteLimit, parseDayLimit)
 	ipCoarse := newRateLimiter(parseIPCoarseLimit, 0)
-	audit := NewAuditor()
-
 	dataDir := cfg.AdminDataDir
 	if dataDir == "" {
 		dataDir = "data"
 	}
+	// 审计：SQLite 持久化优先，打不开则降级为内存模式（服务本身不受影响）。
+	var audit Auditor
+	if a, err := NewAuditor(dataDir); err != nil {
+		log.Printf("[audit] SQLite 审计库打开失败，降级为内存模式: %v", err)
+		audit = newMemAuditor()
+	} else {
+		audit = a
+	}
+
 	bans := NewBanStore(filepath.Join(dataDir, "admin-state.json"))
 	if err := bans.Load(); err != nil {
 		log.Printf("[admin] 加载封禁状态失败: %v", err)

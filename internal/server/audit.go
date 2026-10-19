@@ -1,15 +1,15 @@
 // Package server 审计模块：业务请求的服务端审计事件。
 //
-// 设计要点（见《wx-mp API 认证授权设计文档》第 16.2 节）：
+// 设计要点：
 //   - 事件只由服务端中间件/处理器产生，不信前端上报；
-//   - 近实时层在内存：最近 10,000 条环形缓冲 + 当日按用户聚合，重启清零；
-//   - 不记 JWT 全文、微信 code 全文、密钥与媒体文件内容。
+//   - 默认 SQLite 持久化（data/analytics.db，纯 Go 驱动，单二进制部署不变），
+//     审计事件保留 30 天，用户累计数据永久保留；
+//   - SQLite 不可用时降级为纯内存实现（最近 10,000 条 + 当日聚合，重启清零）；
+//   - 不记 JWT 全文、微信 code 全文、密钥与媒体文件内容；
+//     用户标识用 HMAC 摘要 uid，不存原始 openid。
 package server
 
 import (
-	"sort"
-	"strings"
-	"sync"
 	"time"
 )
 
@@ -63,173 +63,6 @@ type userAgg struct {
 	MediaDowns int64
 }
 
-// Auditor 审计器：环形缓冲 + 当日聚合，全部内存实现。
-type Auditor struct {
-	mu          sync.Mutex
-	buf         []AuditEvent
-	start       int
-	count       int
-	dayStart    time.Time
-	perUser     map[string]*userAgg
-	perPlatform map[string]int64
-	perResult   map[string]int64 // endpoint + ":" + result → 计数
-	failReasons map[string]int64
-}
-
-// NewAuditor 构造审计器。
-func NewAuditor() *Auditor {
-	return &Auditor{
-		buf:         make([]AuditEvent, auditBufCap),
-		dayStart:    time.Now(),
-		perUser:     map[string]*userAgg{},
-		perPlatform: map[string]int64{},
-		perResult:   map[string]int64{},
-		failReasons: map[string]int64{},
-	}
-}
-
-// rollDay 跨天时清零当日聚合（调用方已持锁）。
-func (a *Auditor) rollDay(now time.Time) {
-	y1, m1, d1 := a.dayStart.Date()
-	y2, m2, d2 := now.Date()
-	if y1 != y2 || m1 != m2 || d1 != d2 {
-		a.dayStart = now
-		a.perUser = map[string]*userAgg{}
-		a.perPlatform = map[string]int64{}
-		a.perResult = map[string]int64{}
-		a.failReasons = map[string]int64{}
-	}
-}
-
-// Record 记录一条审计事件。
-func (a *Auditor) Record(ev AuditEvent) {
-	if ev.Time.IsZero() {
-		ev.Time = time.Now()
-	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.rollDay(ev.Time)
-	a.buf[(a.start+a.count)%auditBufCap] = ev
-	if a.count < auditBufCap {
-		a.count++
-	} else {
-		a.start = (a.start + 1) % auditBufCap
-	}
-	a.perResult[ev.Endpoint+":"+ev.Result]++
-	if ev.Platform != "" {
-		a.perPlatform[ev.Platform]++
-	}
-	if ev.Result == AuditFail && ev.Reason != "" {
-		a.failReasons[ev.Reason]++
-	}
-	if ev.UID == "" {
-		return
-	}
-	ua, ok := a.perUser[ev.UID]
-	if !ok {
-		ua = &userAgg{UID: ev.UID, FirstSeen: ev.Time, Platforms: map[string]int64{}}
-		a.perUser[ev.UID] = ua
-	}
-	ua.LastSeen = ev.Time
-	ua.Calls++
-	switch ev.Result {
-	case AuditOK:
-		ua.OK++
-	case AuditFail:
-		ua.Fail++
-	case AuditDeny401, AuditLimit429, AuditDeny403, AuditBanned:
-		ua.Denied++
-	}
-	if ev.Result == AuditLimit429 {
-		ua.Limit429++
-	}
-	if ev.Platform != "" {
-		ua.Platforms[ev.Platform]++
-	}
-	if ev.Endpoint == "media" && ev.Result == AuditOK {
-		ua.MediaDowns++
-	}
-}
-
-// Events 按条件检索审计流水（最新在前），Limit<=0 时默认 50。
-func (a *Auditor) Events(f EventFilter) []AuditEvent {
-	limit := f.Limit
-	if limit <= 0 {
-		limit = 50
-	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	out := make([]AuditEvent, 0, limit)
-	for i := a.count - 1; i >= 0 && len(out) < limit; i-- {
-		ev := a.buf[(a.start+i)%auditBufCap]
-		if f.UID != "" && ev.UID != f.UID {
-			continue
-		}
-		if f.Platform != "" && ev.Platform != f.Platform {
-			continue
-		}
-		if f.Result != "" && ev.Result != f.Result {
-			continue
-		}
-		if !f.Since.IsZero() && ev.Time.Before(f.Since) {
-			continue
-		}
-		out = append(out, ev)
-	}
-	return out
-}
-
-// UserAgg 取单用户当日聚合，不存在返回 nil。
-func (a *Auditor) UserAgg(uid string) *userAgg {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if ua, ok := a.perUser[uid]; ok {
-		cp := *ua
-		return &cp
-	}
-	return nil
-}
-
-// TopUsers 按调用量取 Top N 用户聚合（调用量相同按 Denied 倒序）。
-func (a *Auditor) TopUsers(n int) []*userAgg {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	all := make([]*userAgg, 0, len(a.perUser))
-	for _, ua := range a.perUser {
-		cp := *ua
-		all = append(all, &cp)
-	}
-	sort.Slice(all, func(i, j int) bool {
-		if all[i].Calls != all[j].Calls {
-			return all[i].Calls > all[j].Calls
-		}
-		return all[i].Denied > all[j].Denied
-	})
-	if len(all) > n {
-		all = all[:n]
-	}
-	return all
-}
-
-// SearchUsers 按 uid 短码前缀/包含检索用户。
-func (a *Auditor) SearchUsers(query string, n int) []*userAgg {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	var out []*userAgg
-	q := strings.ToLower(query)
-	for _, ua := range a.perUser {
-		if q == "" || strings.Contains(strings.ToLower(ua.UID), q) {
-			cp := *ua
-			out = append(out, &cp)
-			if len(out) >= n {
-				break
-			}
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].LastSeen.After(out[j].LastSeen) })
-	return out
-}
-
 // StatsSnapshot 总览数据快照（管理页用）。
 type StatsSnapshot struct {
 	DayStart    time.Time
@@ -249,36 +82,26 @@ type kvCount struct {
 	Count int64
 }
 
-// Stats 取总览快照。
-func (a *Auditor) Stats() StatsSnapshot {
-	a.mu.Lock()
-	s := StatsSnapshot{
-		DayStart:   a.dayStart,
-		ByPlatform: map[string]int64{},
-	}
-	for k, v := range a.perPlatform {
-		s.ByPlatform[k] = v
-	}
-	s.Logins = a.perResult["login:"+AuditOK]
-	s.ParseOK = a.perResult["parse:"+AuditOK]
-	s.ParseFail = a.perResult["parse:"+AuditFail]
-	s.MediaDowns = a.perResult["media:"+AuditOK]
-	for k, v := range a.perResult {
-		switch {
-		case strings.HasSuffix(k, ":"+AuditDeny401):
-			s.Deny401 += v
-		case strings.HasSuffix(k, ":"+AuditLimit429):
-			s.Limit429 += v
-		}
-	}
-	for k, v := range a.failReasons {
-		s.FailReasons = append(s.FailReasons, kvCount{k, v})
-	}
-	sort.Slice(s.FailReasons, func(i, j int) bool { return s.FailReasons[i].Count > s.FailReasons[j].Count })
-	if len(s.FailReasons) > 10 {
-		s.FailReasons = s.FailReasons[:10]
-	}
-	a.mu.Unlock()
-	s.TopUsers = a.TopUsers(10)
-	return s
+// Auditor 审计器接口：SQLite 实现（默认）与纯内存实现（降级）都满足它。
+// 管理页只依赖这个接口，存储换实现不影响调用方。
+type Auditor interface {
+	// Record 记录一条审计事件。实现必须是非阻塞的（请求路径上调用），
+	// 内部自行批量落盘。
+	Record(ev AuditEvent)
+	// Events 按条件检索审计流水（最新在前）。
+	Events(f EventFilter) []AuditEvent
+	// UserAgg 取单用户聚合（累计口径），不存在返回 nil。
+	UserAgg(uid string) *userAgg
+	// TopUsers 按调用量取 Top N 用户（今日口径）。
+	TopUsers(n int) []*userAgg
+	// SearchUsers 按 uid 短码检索用户。
+	SearchUsers(query string, n int) []*userAgg
+	// Stats 取总览快照（今日口径）。
+	Stats() StatsSnapshot
+}
+
+// NewAuditor 打开 SQLite 审计库（dataDir/analytics.db）。
+// 打开失败时返回错误，调用方应降级为 newMemAuditor()。
+func NewAuditor(dataDir string) (Auditor, error) {
+	return openSQLAuditor(dataDir)
 }

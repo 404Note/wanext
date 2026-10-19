@@ -10,9 +10,9 @@ import (
 	"time"
 )
 
-func testAdminSetup(t *testing.T, token string) (*AdminManager, *Authenticator, *rateLimiter, *Registry, *Auditor, *BanStore) {
+func testAdminSetup(t *testing.T, token string) (*AdminManager, *Authenticator, *rateLimiter, *Registry, Auditor, *BanStore) {
 	t.Helper()
-	audit := NewAuditor()
+	audit := newMemAuditor()
 	bans := NewBanStore("")
 	auth := NewAuthenticator(true, testSecret, "test-appid", "test-secret", bans, audit)
 	limiter := newRateLimiter(20, 300)
@@ -87,7 +87,7 @@ func TestAdminLoginWrongToken(t *testing.T) {
 }
 
 func TestAdminDisabled404(t *testing.T) {
-	mgr := NewAdminManager(false, "", NewBanStore(""), NewAuditor(), nil, nil, nil)
+	mgr := NewAdminManager(false, "", NewBanStore(""), newMemAuditor(), nil, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/admin/", nil)
 	w := httptest.NewRecorder()
 	mgr.handleAdminPage(w, req)
@@ -95,7 +95,7 @@ func TestAdminDisabled404(t *testing.T) {
 		t.Errorf("未启用时管理页应 404，得到 %d", w.Code)
 	}
 	// token 过短也保持关闭
-	mgr2 := NewAdminManager(true, "short", NewBanStore(""), NewAuditor(), nil, nil, nil)
+	mgr2 := NewAdminManager(true, "short", NewBanStore(""), newMemAuditor(), nil, nil, nil)
 	if mgr2.enabled {
 		t.Error("过短 ADMIN_TOKEN 不应启用管理页")
 	}
