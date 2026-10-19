@@ -44,7 +44,6 @@
   </view>
 
   <view class="footer">
-    <text>内容归原作者所有 · 请仅保存你有权限保存的内容</text>
-    <button class="contact" open-type="contact">联系客服</button>
+    <text>内容归原作者所有，本应用不存储任何解析内容</text>
   </view>
 </view>

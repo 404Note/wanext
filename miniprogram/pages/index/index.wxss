@@ -136,14 +136,3 @@
 .footer text {
   display: block;
 }
-
-.contact {
-  margin-top: 12rpx;
-  font-size: 26rpx;
-  color: #666;
-  background: transparent;
-}
-
-.contact::after {
-  border: none;
-}
