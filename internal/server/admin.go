@@ -194,6 +194,7 @@ func (s *BanStore) Ban(uid string, until time.Time, reason, by string) {
 	}
 	s.active[uid] = &BanRecord{UID: uid, Reason: reason, Until: until, CreatedAt: time.Now(), By: by}
 	s.opLog = append(s.opLog, AdminOp{Time: time.Now(), Action: "ban", UID: uid, Detail: reason})
+	s.trimLocked()
 	s.saveLocked()
 }
 
@@ -208,6 +209,7 @@ func (s *BanStore) Unban(uid string) bool {
 	delete(s.active, uid)
 	s.history = append(s.history, r)
 	s.opLog = append(s.opLog, AdminOp{Time: time.Now(), Action: "unban", UID: uid, Detail: r.Reason})
+	s.trimLocked()
 	s.saveLocked()
 	return true
 }
@@ -261,7 +263,21 @@ func (s *BanStore) LogOp(action, uid, detail string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.opLog = append(s.opLog, AdminOp{Time: time.Now(), Action: action, UID: uid, Detail: detail})
+	s.trimLocked()
 	s.saveLocked()
+}
+
+// banHistoryCap 封禁历史与操作记录的内存/落盘上限，防止无限增长。
+const banHistoryCap = 1000
+
+// trimLocked 截断历史与操作记录（调用方已持锁）。
+func (s *BanStore) trimLocked() {
+	if len(s.history) > banHistoryCap {
+		s.history = s.history[len(s.history)-banHistoryCap:]
+	}
+	if len(s.opLog) > banHistoryCap {
+		s.opLog = s.opLog[len(s.opLog)-banHistoryCap:]
+	}
 }
 
 // parseBanDuration 解析封禁时长档位，返回到期时刻（零值=永久）。

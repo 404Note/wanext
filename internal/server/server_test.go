@@ -130,3 +130,24 @@ func TestRateLimiter(t *testing.T) {
 		t.Errorf("应取 XFF 首个 IP，得到 %s", got)
 	}
 }
+
+func TestRateLimiterPurge(t *testing.T) {
+	l := newRateLimiter(100, 100)
+	l.allow("fresh")
+	l.allow("stale")
+	l.mu.Lock()
+	l.counts["stale"].minuteStart = time.Now().Add(-25 * time.Hour)
+	l.mu.Unlock()
+	l.purgeOlderThan(24 * time.Hour)
+	l.mu.Lock()
+	_, staleOK := l.counts["stale"]
+	_, freshOK := l.counts["fresh"]
+	n := len(l.counts)
+	l.mu.Unlock()
+	if staleOK {
+		t.Error("24 小时未活跃的键应被清理")
+	}
+	if !freshOK || n != 1 {
+		t.Errorf("活跃键不应被误删，剩余 %d", n)
+	}
+}

@@ -35,6 +35,13 @@ const serverVersion = "0.1.0"
 // 媒体链接有效期（与 video-parser 对齐：15 分钟）。
 const mediaTTL = 15 * time.Minute
 
+// maxMediaProxy 媒体代理并发上限：防止突发大文件下载打满带宽与上游连接。
+// 超限时直接 503，不排队（排队会放大延迟并堆积 goroutine）。
+const maxMediaProxy = 256
+
+// mediaProxySem 媒体代理并发信号量。
+var mediaProxySem = make(chan struct{}, maxMediaProxy)
+
 // 解析接口限流默认值：每 IP 每分钟 20 次、每天 300 次。
 const (
 	parseMinuteLimit = 20
@@ -144,7 +151,28 @@ type rateLimiter struct {
 }
 
 func newRateLimiter(minuteLimit, dayLimit int) *rateLimiter {
-	return &rateLimiter{counts: map[string]*ipCount{}, minuteLimit: minuteLimit, dayLimit: dayLimit}
+	l := &rateLimiter{counts: map[string]*ipCount{}, minuteLimit: minuteLimit, dayLimit: dayLimit}
+	go l.cleanupLoop()
+	return l
+}
+
+// cleanupLoop 每小时清理一次 24 小时未活跃的键，防止 IP/用户键无限堆积。
+// 活跃键的 minuteStart 会被 allow() 不断刷新，不会误删。
+func (l *rateLimiter) cleanupLoop() {
+	for range time.Tick(time.Hour) {
+		l.purgeOlderThan(24 * time.Hour)
+	}
+}
+
+func (l *rateLimiter) purgeOlderThan(d time.Duration) {
+	cutoff := time.Now().Add(-d)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for k, c := range l.counts {
+		if c.minuteStart.Before(cutoff) {
+			delete(l.counts, k)
+		}
+	}
 }
 
 // allow 计数并判断是否放行：超限返回 false，不计数。
@@ -513,7 +541,18 @@ func NewWithConfig(cfg Config) http.Handler {
 		}
 		audit.Record(AuditEvent{Endpoint: "media", UID: e.ownerUID, IP: clientIP(r),
 			Result: AuditOK, LatencyMs: time.Since(start).Milliseconds()})
-		proxyMedia(w, r, e)
+		select {
+		case mediaProxySem <- struct{}{}:
+			defer func() { <-mediaProxySem }()
+			proxyMedia(w, r, e)
+		case <-r.Context().Done():
+			return
+		default:
+			audit.Record(AuditEvent{Endpoint: "media", UID: e.ownerUID, IP: clientIP(r),
+				Result: AuditFail, Reason: "代理并发超限", LatencyMs: time.Since(start).Milliseconds()})
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "服务繁忙，请稍后重试"})
+			return
+		}
 	})
 
 	// 抖音分享者身份解析：从分享文案/短链还原「这条链接是谁分享的」

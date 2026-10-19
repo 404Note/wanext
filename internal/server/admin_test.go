@@ -240,3 +240,18 @@ func TestResetLimit(t *testing.T) {
 		t.Error("清除后应恢复放行")
 	}
 }
+
+func TestBanStoreCaps(t *testing.T) {
+	s := NewBanStore("")
+	for i := 0; i < banHistoryCap+50; i++ {
+		uid := strings.Repeat("u", 8) + string(rune('0'+i%10)) + string(rune('a'+i%26))
+		s.Ban(uid, time.Time{}, "r", "admin")
+		s.Unban(uid)
+	}
+	s.mu.Lock()
+	hn, on := len(s.history), len(s.opLog)
+	s.mu.Unlock()
+	if hn > banHistoryCap || on > banHistoryCap {
+		t.Errorf("历史/操作记录应截断在 %d，得到 %d/%d", banHistoryCap, hn, on)
+	}
+}
