@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>任意取 · 管理页</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; margin: 0; background: #f5f6f8; color: #222; }
+  header { background: #1a1d24; color: #fff; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  nav { display: flex; gap: 4px; }
+  nav button { background: transparent; border: 0; color: #bbb; padding: 8px 14px; cursor: pointer; font-size: 14px; border-radius: 6px; }
+  nav button.active, nav button:hover { background: #2c313c; color: #fff; }
+  main { max-width: 1100px; margin: 20px auto; padding: 0 16px 40px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .card { background: #fff; border-radius: 10px; padding: 14px 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .card .v { font-size: 26px; font-weight: 700; }
+  .card .k { font-size: 12px; color: #888; margin-top: 4px; }
+  .panel { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .panel h2 { font-size: 15px; margin: 0 0 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #eee; }
+  th { color: #888; font-weight: 500; background: #fafbfc; }
+  tr:hover td { background: #fafbfc; }
+  .mono { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; }
+  .tag.ok { background: #e6f7ee; color: #0a7d44; }
+  .tag.bad { background: #fdecec; color: #c0392b; }
+  .tag.warn { background: #fef6e0; color: #9a6b00; }
+  .row { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+  input, select { padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
+  button.act { padding: 8px 16px; border: 0; border-radius: 6px; background: #2563eb; color: #fff; cursor: pointer; font-size: 14px; }
+  button.act.danger { background: #dc2626; }
+  button.act.ghost { background: #eef0f3; color: #333; }
+  button.link { background: none; border: 0; color: #2563eb; cursor: pointer; font-size: 13px; padding: 2px 4px; }
+  #login { max-width: 360px; margin: 120px auto; background: #fff; padding: 28px; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,.08); }
+  #login h2 { margin: 0 0 16px; font-size: 18px; }
+  #login input { width: 100%; margin-bottom: 12px; }
+  #login button { width: 100%; }
+  .err { color: #c0392b; font-size: 13px; min-height: 20px; margin-top: 8px; }
+  .muted { color: #888; font-size: 12px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="login">
+  <h2>管理页登录</h2>
+  <input id="token" type="password" placeholder="ADMIN_TOKEN" autocomplete="off">
+  <button class="act" id="loginBtn">登录</button>
+  <div class="err" id="loginErr"></div>
+  <div class="muted">凭证只保存在服务端 .env，会话 8 小时有效。</div>
+</div>
+
+<div id="app" class="hidden">
+  <header>
+    <h1>任意取 · 管理页</h1>
+    <nav>
+      <button data-tab="stats" class="active">总览</button>
+      <button data-tab="users">用户</button>
+      <button data-tab="events">审计流水</button>
+      <button data-tab="bans">封禁名单</button>
+      <button id="logoutBtn">退出</button>
+    </nav>
+  </header>
+  <main>
+    <section id="tab-stats">
+      <div class="cards" id="statCards"></div>
+      <div class="panel"><h2>按平台分布（今日）</h2><div id="byPlatform"></div></div>
+      <div class="panel"><h2>失败原因 Top（今日）</h2><table id="failReasons"><thead><tr><th>原因</th><th>次数</th></tr></thead><tbody></tbody></table></div>
+      <div class="panel"><h2>异常用户 Top（今日）</h2><table id="topUsers"><thead><tr><th>用户</th><th>调用</th><th>成功</th><th>失败</th><th>拒绝</th><th>429</th><th></th></tr></thead><tbody></tbody></table></div>
+    </section>
+    <section id="tab-users" class="hidden">
+      <div class="panel">
+        <div class="row">
+          <input id="userQ" placeholder="按 uid 短码检索">
+          <button class="act ghost" id="userSearchBtn">检索</button>
+        </div>
+        <table id="userTable"><thead><tr><th>用户</th><th>首次</th><th>最近</th><th>调用</th><th>成功率</th><th>状态</th><th></th></tr></thead><tbody></tbody></table>
+      </div>
+      <div class="panel hidden" id="userDetail"></div>
+    </section>
+    <section id="tab-events" class="hidden">
+      <div class="panel">
+        <div class="row">
+          <input id="evUid" placeholder="uid">
+          <input id="evPlatform" placeholder="平台">
+          <select id="evResult">
+            <option value="">全部结果</option>
+            <option value="ok">成功</option><option value="fail">失败</option>
+            <option value="deny401">401</option><option value="limit429">429</option>
+            <option value="deny403">403</option><option value="banned">封禁命中</option>
+          </select>
+          <button class="act ghost" id="evSearchBtn">检索</button>
+        </div>
+        <table id="evTable"><thead><tr><th>时间</th><th>接口</th><th>用户</th><th>IP</th><th>平台</th><th>结果</th><th>原因</th><th>耗时ms</th></tr></thead><tbody></tbody></table>
+      </div>
+    </section>
+    <section id="tab-bans" class="hidden">
+      <div class="panel"><h2>封禁中</h2><table id="banTable"><thead><tr><th>用户</th><th>原因</th><th>到期</th><th>封禁时间</th><th></th></tr></thead><tbody></tbody></table></div>
+      <div class="panel"><h2>历史（到期/已解封）</h2><table id="banHistTable"><thead><tr><th>用户</th><th>原因</th><th>到期</th><th>封禁时间</th></tr></thead><tbody></tbody></table></div>
+      <div class="panel"><h2>管理员操作记录</h2><table id="opTable"><thead><tr><th>时间</th><th>动作</th><th>用户</th><th>详情</th></tr></thead><tbody></tbody></table></div>
+    </section>
+  </main>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var csrf = '';
+  var $ = function (id) { return document.getElementById(id); };
+
+  function api(path, opts) {
+    opts = opts || {};
+    var headers = { 'Content-Type': 'application/json' };
+    if (csrf && (opts.method === 'POST' || opts.method === 'DELETE' || opts.method === 'PUT')) {
+      headers['X-CSRF-Token'] = csrf;
+    }
+    return fetch('/api/admin' + path, {
+      method: opts.method || 'GET',
+      headers: headers,
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+      credentials: 'same-origin'
+    }).then(function (r) {
+      if (r.status === 401) { showLogin('会话已过期，请重新登录'); throw new Error('unauth'); }
+      if (r.status === 404) { throw new Error('接口不存在（管理页可能未启用）'); }
+      return r.json().then(function (j) {
+        if (!r.ok) throw new Error((j && j.error) || ('HTTP ' + r.status));
+        return j;
+      });
+    });
+  }
+
+  function fmtTime(s) {
+    if (!s) return '-';
+    var d = new Date(s);
+    return d.toLocaleString('zh-CN', { hour12: false });
+  }
+  function shortUid(u) { return (u || '').slice(0, 8); }
+  function resultTag(r) {
+    var cls = r === 'ok' ? 'ok' : (r === 'fail' ? 'bad' : 'warn');
+    return '<span class="tag ' + cls + '">' + r + '</span>';
+  }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function showLogin(msg) {
+    $('app').classList.add('hidden');
+    $('login').classList.remove('hidden');
+    $('loginErr').textContent = msg || '';
+    csrf = '';
+  }
+  function showApp() {
+    $('login').classList.add('hidden');
+    $('app').classList.remove('hidden');
+  }
+
+  $('loginBtn').addEventListener('click', function () {
+    var token = $('token').value.trim();
+    if (!token) { $('loginErr').textContent = '请输入凭证'; return; }
+    fetch('/api/admin/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: token }), credentials: 'same-origin'
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (x) {
+        if (!x.ok) { $('loginErr').textContent = (x.j && x.j.error) || '登录失败'; return; }
+        csrf = x.j.csrf || '';
+        $('token').value = '';
+        showApp();
+        loadStats();
+      })
+      .catch(function (e) { $('loginErr').textContent = '网络错误：' + e.message; });
+  });
+
+  $('logoutBtn').addEventListener('click', function () {
+    api('/logout', { method: 'POST' }).finally(function () { showLogin(''); });
+  });
+
+  document.querySelectorAll('nav button[data-tab]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.querySelectorAll('nav button[data-tab]').forEach(function (x) { x.classList.remove('active'); });
+      b.classList.add('active');
+      ['stats', 'users', 'events', 'bans'].forEach(function (t) {
+        $('tab-' + t).classList.toggle('hidden', t !== b.dataset.tab);
+      });
+      if (b.dataset.tab === 'stats') loadStats();
+      if (b.dataset.tab === 'users') loadUsers();
+      if (b.dataset.tab === 'events') loadEvents();
+      if (b.dataset.tab === 'bans') loadBans();
+    });
+  });
+
+  function loadStats() {
+    api('/stats').then(function (s) {
+      var cards = [
+        ['登录', s.Logins || 0], ['提取成功', s.ParseOK || 0], ['提取失败', s.ParseFail || 0],
+        ['401', s.Deny401 || 0], ['429', s.Limit429 || 0], ['媒体下载', s.MediaDowns || 0]
+      ];
+      $('statCards').innerHTML = cards.map(function (c) {
+        return '<div class="card"><div class="v">' + c[1] + '</div><div class="k">' + c[0] + '（今日）</div></div>';
+      }).join('');
+      var bp = s.ByPlatform || {};
+      $('byPlatform').innerHTML = Object.keys(bp).map(function (k) {
+        return '<span class="tag warn" style="margin:2px">' + esc(k) + ' ' + bp[k] + '</span>';
+      }).join('') || '<span class="muted">暂无</span>';
+      $('failReasons').querySelector('tbody').innerHTML = (s.FailReasons || []).map(function (r) {
+        return '<tr><td>' + esc(r.Key) + '</td><td>' + r.Count + '</td></tr>';
+      }).join('');
+      $('topUsers').querySelector('tbody').innerHTML = (s.TopUsers || []).map(function (u) {
+        return '<tr><td class="mono">' + esc(shortUid(u.UID)) + '</td><td>' + u.Calls + '</td><td>' + u.OK +
+          '</td><td>' + u.Fail + '</td><td>' + u.Denied + '</td><td>' + (u.Limit429 || 0) +
+          '</td><td><button class="link" onclick="userDetail(\'' + u.UID + '\')">详情</button></td></tr>';
+      }).join('');
+    }).catch(function (e) { if (e.message !== 'unauth') alert(e.message); });
+  }
+
+  function loadUsers() {
+    var q = $('userQ').value.trim();
+    api('/users?q=' + encodeURIComponent(q)).then(function (d) {
+      $('userTable').querySelector('tbody').innerHTML = (d.users || []).map(function (u) {
+        var rate = u.Calls ? Math.round(u.OK / u.Calls * 100) + '%' : '-';
+        return '<tr><td class="mono">' + esc(u.Short) + '</td><td>' + fmtTime(u.FirstSeen) + '</td><td>' +
+          fmtTime(u.LastSeen) + '</td><td>' + u.Calls + '</td><td>' + rate + '</td><td>' +
+          (u.Banned ? '<span class="tag bad">已封禁</span>' : '<span class="tag ok">正常</span>') +
+          '</td><td><button class="link" onclick="userDetail(\'' + u.UID + '\')">详情</button></td></tr>';
+      }).join('');
+      $('userDetail').classList.add('hidden');
+    }).catch(function (e) { if (e.message !== 'unauth') alert(e.message); });
+  }
+  $('userSearchBtn').addEventListener('click', loadUsers);
+
+  window.userDetail = function (uid) {
+    api('/users/' + encodeURIComponent(uid)).then(function (d) {
+      var a = d.agg || {};
+      var html = '<h2>用户 <span class="mono">' + esc(d.short) + '</span> ' +
+        (d.banned ? '<span class="tag bad">已封禁</span>' : '<span class="tag ok">正常</span>') + '</h2>';
+      html += '<div class="muted">调用 ' + (a.Calls || 0) + ' · 成功 ' + (a.OK || 0) + ' · 失败 ' + (a.Fail || 0) +
+        ' · 拒绝 ' + (a.Denied || 0) + ' · 429 ' + (a.Limit429 || 0) + '</div>';
+      html += '<div class="row" style="margin-top:12px">' +
+        '<select id="banDur"><option value="24h">24 小时</option><option value="7d">7 天</option><option value="forever">永久</option></select>' +
+        '<input id="banReason" placeholder="封禁原因（必填）" style="flex:1;min-width:200px">' +
+        (d.banned
+          ? '<button class="act ghost" onclick="unban(\'' + uid + '\')">解封</button>'
+          : '<button class="act danger" onclick="ban(\'' + uid + '\')">封禁</button>') +
+        '<button class="act ghost" onclick="resetLimit(\'' + uid + '\')">清除限流计数</button></div>';
+      html += '<h2 style="margin-top:16px">最近流水</h2><table><thead><tr><th>时间</th><th>接口</th><th>结果</th><th>原因</th></tr></thead><tbody>' +
+        (d.events || []).map(function (e) {
+          return '<tr><td>' + fmtTime(e.time) + '</td><td>' + esc(e.endpoint) + '</td><td>' + resultTag(e.result) +
+            '</td><td>' + esc(e.reason) + '</td></tr>';
+        }).join('') + '</tbody></table>';
+      var el = $('userDetail');
+      el.innerHTML = html;
+      el.classList.remove('hidden');
+      el.scrollIntoView();
+    }).catch(function (e) { if (e.message !== 'unauth') alert(e.message); });
+  };
+
+  window.ban = function (uid) {
+    var reason = $('banReason').value.trim();
+    if (!reason) { alert('封禁原因必填'); return; }
+    if (!confirm('确认封禁该用户？其请求、登录与媒体令牌将立即失效。')) return;
+    api('/bans', { method: 'POST', body: { uid: uid, duration: $('banDur').value, reason: reason } })
+      .then(function () { alert('已封禁'); userDetail(uid); })
+      .catch(function (e) { alert(e.message); });
+  };
+  window.unban = function (uid) {
+    if (!confirm('确认解封该用户？')) return;
+    api('/bans/' + encodeURIComponent(uid), { method: 'DELETE' })
+      .then(function () { alert('已解封'); userDetail(uid); })
+      .catch(function (e) { alert(e.message); });
+  };
+  window.resetLimit = function (uid) {
+    api('/users/' + encodeURIComponent(uid) + '/reset-limit', { method: 'POST' })
+      .then(function () { alert('限流计数已清除'); })
+      .catch(function (e) { alert(e.message); });
+  };
+
+  function loadEvents() {
+    var q = '?uid=' + encodeURIComponent($('evUid').value.trim()) +
+      '&platform=' + encodeURIComponent($('evPlatform').value.trim()) +
+      '&result=' + encodeURIComponent($('evResult').value);
+    api('/events' + q).then(function (d) {
+      $('evTable').querySelector('tbody').innerHTML = (d.events || []).map(function (e) {
+        return '<tr><td>' + fmtTime(e.time) + '</td><td>' + esc(e.endpoint) + '</td><td class="mono">' +
+          esc(shortUid(e.uid)) + '</td><td class="mono">' + esc(e.ip) + '</td><td>' + esc(e.platform) +
+          '</td><td>' + resultTag(e.result) + '</td><td>' + esc(e.reason) + '</td><td>' + (e.latency_ms || 0) + '</td></tr>';
+      }).join('');
+    }).catch(function (e) { if (e.message !== 'unauth') alert(e.message); });
+  }
+  $('evSearchBtn').addEventListener('click', loadEvents);
+
+  function loadBans() {
+    api('/bans').then(function (d) {
+      $('banTable').querySelector('tbody').innerHTML = (d.active || []).map(function (b) {
+        return '<tr><td class="mono">' + esc(shortUid(b.uid)) + '</td><td>' + esc(b.reason) + '</td><td>' +
+          (b.until ? fmtTime(b.until) : '永久') + '</td><td>' + fmtTime(b.created_at) +
+          '</td><td><button class="link" onclick="unban(\'' + b.uid + '\')">解封</button></td></tr>';
+      }).join('');
+      $('banHistTable').querySelector('tbody').innerHTML = (d.history || []).map(function (b) {
+        return '<tr><td class="mono">' + esc(shortUid(b.uid)) + '</td><td>' + esc(b.reason) + '</td><td>' +
+          (b.until ? fmtTime(b.until) : '永久') + '</td><td>' + fmtTime(b.created_at) + '</td></tr>';
+      }).join('');
+      $('opTable').querySelector('tbody').innerHTML = (d.oplog || []).map(function (o) {
+        return '<tr><td>' + fmtTime(o.time) + '</td><td>' + esc(o.action) + '</td><td class="mono">' +
+          esc(shortUid(o.uid)) + '</td><td>' + esc(o.detail) + '</td></tr>';
+      }).join('');
+    }).catch(function (e) { if (e.message !== 'unauth') alert(e.message); });
+  }
+
+  // 启动：先自检会话
+  fetch('/api/admin/me', { credentials: 'same-origin' }).then(function (r) {
+    return r.json().then(function (j) { return { ok: r.ok, j: j }; });
+  }).then(function (x) {
+    if (x.ok) { csrf = x.j.csrf || ''; showApp(); loadStats(); }
+    else { showLogin(''); }
+  }).catch(function () { showLogin(''); });
+})();
+</script>
+</body>
+</html>

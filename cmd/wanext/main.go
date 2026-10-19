@@ -34,9 +34,13 @@ func main() {
 		addr := fs.String("addr", "127.0.0.1:8080", "监听地址")
 		baseURL := fs.String("base-url", "", "对外绝对地址前缀，如 https://api.example.com（环境变量 BASE_URL 优先）")
 		_ = fs.Parse(os.Args[2:])
-		cfg := server.Config{BaseURL: *baseURL}
-		if v := os.Getenv("BASE_URL"); v != "" {
-			cfg.BaseURL = v
+		cfg, err := server.ConfigFromEnv()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "配置错误:", err)
+			os.Exit(1)
+		}
+		if cfg.BaseURL == "" {
+			cfg.BaseURL = *baseURL
 		}
 		fmt.Printf("wanext v%s Web 服务已启动：http://%s\n", version, *addr)
 		fmt.Println("在浏览器打开上面的地址即可测试解析（Ctrl+C 退出）。")
@@ -105,5 +109,12 @@ func usage() {
 
 环境变量:
   BASE_URL                              对外绝对地址前缀（小程序用，优先于 -base-url）
+  AUTH_REQUIRED                         1=强制微信登录鉴权（缺密钥启动失败），0=关闭（缺省，本地开发）
+  WX_APPID / WX_SECRET                  微信小程序 AppID 与 AppSecret（鉴权开启时必填，只进 .env）
+  JWT_SECRET                            JWT 签名密钥（≥32 字节，鉴权开启时必填，只进 .env）
+  BANNED_UIDS                           紧急兜底封禁名单（uid 逗号分隔，管理页不可用时用）
+  ADMIN_ENABLED                         1=启用管理页（需同时配置 ADMIN_TOKEN）
+  ADMIN_TOKEN                           管理员凭证（≥32 字节，只进 .env）
+  ADMIN_DATA_DIR                        管理页状态文件目录（缺省 data）
   HTTP_PROXY / HTTPS_PROXY              上游请求代理（如需）`)
 }
