@@ -48,9 +48,19 @@ function extractContent(inputText) {
     }
     const data = res.data || {};
     const medias = Array.isArray(data.medias) ? data.medias : [];
+    const sharer = data.sharer || null;
     return {
       title: data.title || '',
       author: data.author || '',
+      // 分享者信息：文案不体现平台，douyin_id 展示为"账号"。
+      sharer: sharer
+        ? {
+            nickname: sharer.nickname || '',
+            accountId: sharer.douyin_id || '',
+            signature: sharer.signature || '',
+            shareTime: sharer.share_time || '',
+          }
+        : null,
       medias: medias.map((m) => ({
         kind: m.kind,
         proxyUrl: resolveURL(m.proxy_url),

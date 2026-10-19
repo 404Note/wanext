@@ -93,6 +93,35 @@
   color: #888;
 }
 
+.sharer {
+  margin-bottom: 20rpx;
+  padding: 20rpx;
+  background: #f7f8fa;
+  border-radius: 16rpx;
+}
+
+.sharer-name {
+  display: block;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.sharer-id,
+.sharer-time {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 24rpx;
+  color: #888;
+}
+
+.sharer-sign {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 24rpx;
+  color: #666;
+  line-height: 1.6;
+}
+
 .carousel {
   height: 720rpx;
   background: #000;

@@ -26,6 +26,13 @@
       <text wx:if="{{result.author}}" class="result-author">{{result.author}}</text>
     </view>
 
+    <view wx:if="{{result.sharer && result.sharer.nickname}}" class="sharer">
+      <text class="sharer-name">分享者 {{result.sharer.nickname}}</text>
+      <text wx:if="{{result.sharer.accountId}}" class="sharer-id">账号 {{result.sharer.accountId}}</text>
+      <text wx:if="{{result.sharer.shareTime}}" class="sharer-time">分享于 {{result.sharer.shareTime}}</text>
+      <text wx:if="{{result.sharer.signature}}" class="sharer-sign">{{result.sharer.signature}}</text>
+    </view>
+
     <swiper class="carousel" current="{{currentIndex}}" bindchange="onSwiperChange" indicator-dots>
       <block wx:for="{{result.medias}}" wx:key="index">
         <swiper-item>
