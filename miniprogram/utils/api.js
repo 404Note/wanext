@@ -1,4 +1,4 @@
-const config = require('../../config.js');
+const config = require('../config.js');
 
 // 统一请求封装：baseURL 一处配置，超时 100 秒（对齐服务端 90 秒上限并留余量）。
 function request(path, method, data) {
